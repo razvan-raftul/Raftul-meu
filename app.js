@@ -359,11 +359,11 @@ function statsHTML() {
     <div class="stat" role="group" aria-label="${esc(t('readingTimeIn', { x: hoursSpoken(tot.minutes), y: statYear }))}"><div class="n" aria-hidden="true">${(Math.round(tot.minutes / 6) / 10).toLocaleString(LOC())}</div><div class="l" aria-hidden="true">${esc(t('readingHours'))}</div></div>
     <div class="stat" role="group" aria-label="${esc(t('goalXofY', { x: tot.books, y: goal }))}"><div class="n" aria-hidden="true">${Math.min(100, Math.round(tot.books / goal * 100))}%</div><div class="l" aria-hidden="true">${esc(t('ofGoal', { n: goal }))}</div></div></div>`;
   if (isCur) h += `<div class="label">${esc(t('goalFor', { y: statYear }))}</div><div class="group">${slider({ id: 'goalR', label: t('yearlyGoal'), min: 1, max: Math.max(200, goal), value: goal, text: goalText(goal), extra: 'data-goalr' })}</div>`;
-  // one folder per month of the selected year (the current year by default)
+  // one folder per month of the selected year; opening it shows a full page with that month's books
   h += `<div class="label">${esc(t('monthsOfYear', { y: statYear }))}</div><div class="group">${m.map((x, i) => {
-    const list = readInMonth(i, statYear), open = openMonths.has(i);
-    const aria = MONTH(i) + ': ' + tn(list.length, 'book') + (x.pages ? ', ' + tn(x.pages, 'page') : '') + (x.minutes ? ', ' + hoursSpoken(x.minutes) : '');
-    return `<button class="cell" data-month="${i}" aria-expanded="${open}" aria-label="${esc(aria)}"><span class="ico" style="background:#2B7BE4" aria-hidden="true">${icon('folder')}</span><span class="grow">${esc(MONTH(i))}<div class="mb" aria-hidden="true"><i style="width:${Math.round(x.books / maxB * 100)}%"></i></div></span><span class="val">${list.length}</span><span class="chev ${open ? 'open' : ''}" aria-hidden="true">${icon('chev')}</span></button>${open ? (list.length ? `<div class="sub" role="list">${list.map(b => `<div role="listitem">${bookRowHTML(b)}</div>`).join('')}</div>` : `<div class="sub foot" style="padding:10px 16px">${esc(t('noBooksMonth'))}</div>`) : ''}`;
+    const n = readInMonth(i, statYear).length;
+    const aria = MONTH(i) + ': ' + tn(n, 'book') + (x.pages ? ', ' + tn(x.pages, 'page') : '') + (x.minutes ? ', ' + hoursSpoken(x.minutes) : '');
+    return `<button class="cell" data-month="${i}" aria-label="${esc(aria)}"><span class="ico" style="background:#2B7BE4" aria-hidden="true">${icon('folder')}</span><span class="grow">${esc(MONTH(i))}<div class="mb" aria-hidden="true"><i style="width:${Math.round(x.books / maxB * 100)}%"></i></div></span><span class="val">${n}</span><span class="chev" aria-hidden="true">${icon('chev')}</span></button>`;
   }).join('')}</div>`;
   const line = (a, b, unit) => infoRow(a, b ? `${b.label} (${unit(b.v)})` : '–');
   h += `<div class="label">${esc(t('records', { y: statYear }))}</div><div class="group">${line(t('mostBooks'), bm, v => tn(v, 'book'))}${line(t('mostPages'), bp, v => v + ' ' + t('pagesShort'))}${line(t('mostTime'), bt, hours)}</div>`;
@@ -564,6 +564,11 @@ screens.more = () => {
 /* ---- secondary pages (all have a Back button) ---- */
 const pages = {};
 pages.stats = () => navHTML(t('stats'), { back: backLabel() }) + statsHTML();
+pages.month = arg => {
+  const [y, i] = arg.split('-').map(Number);
+  const list = readInMonth(i, y);
+  return navHTML(`${MONTH(i)} ${y}`, { back: backLabel() }) + (list.length ? `<div class="label">${esc(tn(list.length, 'book'))}</div><div class="group" role="list">${list.map(b => `<div role="listitem">${bookRowHTML(b)}</div>`).join('')}</div>` : emptyHTML(t('noBooksHere'), t('noBooksMonth')));
+};
 pages.profile = () => `${navHTML(t('editProfile'), { back: backLabel() })}
   <form id="profileForm"><div class="group">
    <div class="field"><label for="p-name">${esc(t('displayName'))}</label><input id="p-name" name="name" value="${esc(S.profile.name)}" autocomplete="name"></div>
@@ -821,7 +826,7 @@ document.addEventListener('click', e => {
   if (d.go) { goTab(d.go); return; }
   if (d.push) { const titles = { profile: t('editProfile'), account: t('account'), settings: t('settings'), import: t('import'), backup: t('backup'), history: t('historyTitle'), install: t('install'), about: t('about'), stats: t('stats'), language: t('language') }; push(d.push, null, titles[d.push]); return; }
   if (d.libseg) { if (tab !== 'library') { tab = 'library'; stack.library = []; } libSeg = d.libseg; render(true); return; }
-  if (d.month !== undefined && el.hasAttribute('data-month')) { const i = +d.month; if (openMonths.has(i)) openMonths.delete(i); else openMonths.add(i); render(); $(`[data-month="${i}"]`)?.focus(); say(openMonths.has(i) ? t('expanded') : t('collapsed')); return; }
+  if (el.hasAttribute('data-month')) { const i = +d.month; push('month', `${statYear}-${i}`, `${MONTH(i)} ${statYear}`); return; }
   if (d.year) { statYear = +d.year; openMonths.clear(); render(); $(`[data-year="${statYear}"]`)?.focus(); return; }
   if (d.book) { const b = byId(d.book); if (b) { closeSheet(true); openSheet(bookSheet(b), b.title); } return; }
   if (d.cand) { const c = candStore[d.cand]; if (c) openSheet(candSheet(c), c.title); return; }
