@@ -26,20 +26,25 @@ let studioRef = null; try { studioRef = JSON.parse(localStorage.getItem(REF_KEY)
 let wakeLock = null;
 
 /* ---------------- vorbire ---------------- */
-function say(text, force = false) {
+let muted = false;
+function say(text, force = false, auto = false) {
   const now = Date.now();
+  if (auto && muted) { $('#status').textContent = text; return; }
   if (!force && text === lastSaid && now - lastSaidAt < 6000) return;
   if (!force && now - lastSaidAt < 1800) return;
   lastSaid = text; lastSaidAt = now;
   $('#status').textContent = text;
-  if ($('#optVoice').checked && 'speechSynthesis' in window) {
+  if (useVoice() && 'speechSynthesis' in window) {
     speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text); u.lang = 'ro-RO'; u.rate = 1.05;
+    const u = new SpeechSynthesisUtterance(text); u.lang = 'ro-RO'; u.rate = 1.1;
+    micPause(true);
+    u.onend = u.onerror = () => setTimeout(() => micPause(false), 250);
     speechSynthesis.speak(u);
   } else {
     const el = $('#say'); el.textContent = ''; setTimeout(() => { el.textContent = text; }, 60);
   }
 }
+const useVoice = () => $('#optVoice').checked || $('#optMic').checked;
 let actx = null;
 function chime() {
   try {
@@ -227,14 +232,14 @@ function loop() {
   if (tiltDeg != null && Math.abs(tiltDeg) >= 4) extra.push(`Telefonul e strâmb cu ${Math.abs(tiltDeg)} grade. Rotește-l încet până îți spun că e drept.`);
   const stray = $('#optObjects').checked ? strayObjects(g.box, W, H) : [];
   $('#details').textContent = [g.msgs.join(' '), ...extra, stray.length ? 'În cadru: ' + stray.join('; ') + '.' : ''].filter(Boolean).join('\n');
-  if (!g.ok) { okSince = 0; if (okAnnounced) { okAnnounced = false; } say(g.msgs[0]); $('#status').classList.remove('ok'); return; }
-  if (extra.length) { okSince = 0; say(extra[0]); return; }
+  if (!g.ok) { okSince = 0; if (okAnnounced) { okAnnounced = false; } say(g.msgs[0], false, true); $('#status').classList.remove('ok'); return; }
+  if (extra.length) { okSince = 0; say(extra[0], false, true); return; }
   if (!okSince) okSince = now;
   if (now - okSince > 1200 && !okAnnounced) {
     okAnnounced = true; chime();
     say('Perfect, ești bine încadrat. Nu mai mișca telefonul.' + (stray.length ? ' Atenție, în cadru apare ' + stray.join(', ') + '.' : ''), true);
     $('#status').classList.add('ok');
-  } else if (okAnnounced && stray.length && Date.now() - lastSaidAt > 15000) say('În cadru apare ' + stray.join(', ') + '.');
+  } else if (okAnnounced && stray.length && Date.now() - lastSaidAt > 15000) say('În cadru apare ' + stray.join(', ') + '.', false, true);
 }
 function draw(box, W, H) {
   overlay.width = video.clientWidth; overlay.height = video.clientHeight;
@@ -270,6 +275,89 @@ function describe() {
   say(parts.join(' '), true);
 }
 
+
+/* ---------------- comenzi vocale: întrebi, aplicația răspunde imediat ---------------- */
+let rec = null, micOn = false, micPaused = false, lastHeard = '';
+const norm = x => x.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+function micPause(p) {
+  micPaused = p;
+  if (!rec || !micOn) return;
+  try { if (p) rec.abort(); else rec.start(); } catch (e) {}
+}
+function current() {
+  const W = video.videoWidth, H = video.videoHeight;
+  const g = guide(mode, lastPose, lastHands, { portrait: H >= W });
+  return { g, W, H, light: lightMsg(lastLight), stray: strayObjects(g.box, W, H) };
+}
+function score(c) {
+  let sc = 100;
+  if (!c.g.box) return 0;
+  c.g.msgs.forEach((m, i) => { if (/^Văd o singură/.test(m)) return; sc -= /taie|ies|Ieși|Nu ți se|nu încap|Nu încapi|prea aproape\. Dep/.test(m) ? 35 : 15; });
+  if (c.light) sc -= 15;
+  if (tiltDeg != null && Math.abs(tiltDeg) >= 4) sc -= Math.min(20, Math.abs(tiltDeg));
+  sc -= Math.min(20, c.stray.length * 7);
+  return Math.max(0, Math.min(100, sc));
+}
+const MODES = { head: 'cap și umeri', waist: 'până la talie', full: 'tot corpul', side: 'din lateral', hands: 'doar mâinile' };
+async function setMode(m) {
+  mode = m; okSince = 0; okAnnounced = false; lastPose = null; lastHands = null;
+  say('Am trecut pe ' + MODES[m] + '.', true);
+  try { await loadModels(); } catch (e) { say('Nu am putut încărca recunoașterea pentru acest mod.', true); }
+}
+function answer(raw) {
+  const q = norm(raw); if (!q) return;
+  const has = (...w) => w.some(x => q.includes(x));
+  const c = current();
+  if (has('ajutor', 'ce pot', 'comenzi')) return say('Poți întreba: ce se vede, în ce direcție mut camera, cât de bine mă văd, e ceva nepotrivit, ce e în cadru, cum e lumina, e drept telefonul. Pentru alt mod spui: mod cap și umeri, mod talie, mod tot corpul, mod lateral sau mod mâini. Mai poți spune: învață studioul, uită studioul, repetă, liniște, vorbește, oprește.', true);
+  if (has('repeta', 'ce ai zis', 'inca o data')) return say(lastSaid || 'Nu am spus nimic încă.', true);
+  if (has('liniste', 'taci', 'gata cu indicatiile', 'nu mai vorbi')) { muted = true; return say('Bine, tac. Îmi poți pune oricând întrebări. Spune „vorbește” ca să reiau indicațiile.', true); }
+  if (has('vorbeste', 'reia', 'continua')) { muted = false; okAnnounced = false; return say('Reiau indicațiile.', true); }
+  if (has('opreste', 'stop', 'inchide')) { say('Opresc.', true); return setTimeout(stop, 800); }
+  if (has('uita studio')) { $('#forget').click(); return; }
+  if (has('invata studio', 'memoreaza studio', 'studioul gol')) return learnStudio();
+  const sw = q.startsWith('mod ') || has('treci pe', 'schimba pe', 'modul ', 'trece pe');
+  const exact = p => q === p || q === 'mod ' + p;
+  if (sw || exact('cap si umeri') || exact('tot corpul') || exact('pana la talie') || exact('din lateral') || exact('doar mainile')) {
+    if (has('cap', 'umeri', 'portret')) return setMode('head');
+    if (has('tot corpul', 'intreg', 'picioare')) return setMode('full');
+    if (has('talie', 'jumatate')) return setMode('waist');
+    if (has('lateral', 'profil', 'din parte')) return setMode('side');
+    if (has('maini', 'mainile', 'clape')) return setMode('hands');
+  }
+  if (has('directie', 'unde mut', 'unde sa mut', 'cum mut', 'cum sa mut', 'ce sa fac', 'incotro', 'muta')) return say(c.g.ok ? (c.light || (tiltDeg != null && Math.abs(tiltDeg) >= 4 ? `Încadrarea e bună. Doar telefonul e strâmb cu ${Math.abs(tiltDeg)} grade.` : 'Nu muta nimic, ești bine încadrat.')) : c.g.msgs.join(' '), true);
+  if (has('cat de bine', 'cum ma vezi', 'cum arat', 'sunt incadrat', 'e bine', 'ma vezi bine', 'nota')) { const sc = score(c); return say(`${sc >= 85 ? 'Te văd bine' : sc >= 60 ? 'Te văd destul de bine' : sc > 0 ? 'Nu te văd bine' : 'Nu te văd deloc'}, cam ${sc} din 100.` + (c.g.ok ? '' : ' ' + c.g.msgs[0]) + (c.light ? ' ' + c.light : '') + (c.stray.length ? ' În cadru mai apare ' + c.stray.join(', ') + '.' : ''), true); }
+  if (has('nepotrivit', 'in plus', 'deranjeaza', 'fundal', 'obiect', 'ce e in cadru', 'ce mai e')) {
+    const all = lastObjects.filter(d => d.categories[0] && d.categories[0].categoryName !== 'person' && d.categories[0].score >= 0.45);
+    return say(c.stray.length ? 'Da: ' + c.stray.join('; ') + '.' : all.length ? 'Nu văd nimic nepotrivit. Ce e în cadru face parte din studioul învățat.' : 'Nu văd nimic nepotrivit în cadru.', true);
+  }
+  if (has('lumina', 'intuneric', 'luminos')) return say(c.light || 'Lumina e bună.', true);
+  if (has('drept', 'strimb', 'strâmb', 'inclinat')) return say(tiltDeg == null ? 'Nu pot citi înclinarea telefonului.' : Math.abs(tiltDeg) < 4 ? 'Telefonul e drept.' : `Telefonul e strâmb cu ${Math.abs(tiltDeg)} grade.`, true);
+  if (has('ce se vede', 'ce vezi', 'descrie', 'ce e pe ecran', 'cadru')) return describe();
+  say('Nu am înțeles. Spune „ajutor” ca să auzi ce poți întreba.', true);
+}
+window.__answer = answer;
+function startMic() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { say('Telefonul nu permite comenzi vocale în acest browser. Folosește Safari și activează Dictarea din Setări, Tastatură.', true); return false; }
+  rec = new SR(); rec.lang = 'ro-RO'; rec.continuous = true; rec.interimResults = false; rec.maxAlternatives = 1;
+  rec.onresult = e => {
+    for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) {
+      const t = e.results[i][0].transcript.trim();
+      if (!t || norm(t) === norm(lastHeard)) continue;
+      if (lastSaid && norm(lastSaid).includes(norm(t)) && Date.now() - lastSaidAt < 4000) continue; // propria voce
+      lastHeard = t; $('#heard').textContent = 'Am auzit: ' + t;
+      answer(t);
+    }
+  };
+  rec.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { micOn = false; say('Nu am voie la microfon. Permite microfonul și Dictarea pentru Safari.', true); updateMicBtn(); } };
+  rec.onend = () => { if (micOn && !micPaused && running) setTimeout(() => { try { rec.start(); } catch (e) {} }, 150); };
+  micOn = true; try { rec.start(); } catch (e) {}
+  updateMicBtn();
+  return true;
+}
+function stopMic() { micOn = false; try { rec && rec.abort(); } catch (e) {} updateMicBtn(); }
+function updateMicBtn() { const b = $('#mic'); if (b) { b.textContent = micOn ? 'Oprește comenzile vocale' : 'Pornește comenzile vocale'; b.setAttribute('aria-pressed', String(micOn)); } }
+
 /* ---------------- pornire / oprire ---------------- */
 async function start() {
   mode = document.querySelector('input[name=mode]:checked').value;
@@ -286,14 +374,15 @@ async function start() {
     await loadModels();
     try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (e) {}
     running = true; okSince = 0; okAnnounced = false; lastSaidAt = 0;
-    say('Gata. Te ghidez acum.', true);
     loop();
+    if ($('#optMic').checked && startMic()) say('Gata. Te ghidez acum. Îmi poți pune întrebări oricând, de exemplu: cât de bine mă văd? Spune „ajutor” pentru toate comenzile.', true);
+    else say('Gata. Te ghidez acum.', true);
   } catch (e) {
     say('Nu am putut porni camera sau recunoașterea: ' + (e && e.message ? e.message : e) + '. Verifică permisiunea pentru cameră și legătura la internet.', true);
   }
 }
 function stop() {
-  running = false;
+  running = false; stopMic(); muted = false;
   if (stream) stream.getTracks().forEach(t => t.stop());
   stream = null; window.removeEventListener('devicemotion', onMotion);
   try { wakeLock && wakeLock.release(); } catch (e) {}
@@ -314,6 +403,7 @@ async function learnStudio() {
   }, 5000);
 }
 $('#start').addEventListener('click', start);
+$('#mic').addEventListener('click', () => { if (micOn) { stopMic(); say('Comenzile vocale sunt oprite.', true); } else if (startMic()) say('Te ascult.', true); });
 $('#stop').addEventListener('click', stop);
 $('#describe').addEventListener('click', describe);
 $('#learn').addEventListener('click', learnStudio);

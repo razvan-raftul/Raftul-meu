@@ -59,6 +59,7 @@ canvas{position:absolute;inset:0;margin:auto}
     <fieldset>
       <legend>Opțiuni</legend>
       <label class="opt"><input type="checkbox" id="optObjects" checked><span>Spune-mi ce obiecte apar în cadru</span></label>
+      <label class="opt"><input type="checkbox" id="optMic" checked><span>Vorbesc cu aplicația<small>Îi pui întrebări cu vocea: ce se vede, în ce direcție mut camera, cât de bine mă văd. Răspunde cu vocea ei.</small></span></label>
       <label class="opt"><input type="checkbox" id="optVoice"><span>Folosește vocea aplicației<small>Altfel citește VoiceOver. Pornește-o dacă VoiceOver e închis.</small></span></label>
     </fieldset>
     <div class="btns">
@@ -70,6 +71,8 @@ canvas{position:absolute;inset:0;margin:auto}
     <div id="status" role="status" aria-live="polite" aria-atomic="true">Pregătesc camera…</div>
     <div id="details"></div>
     <div class="btns">
+      <button id="mic" aria-pressed="false">Pornește comenzile vocale</button>
+      <div id="heard" style="color:var(--muted);font-size:15px"></div>
       <button id="describe">Ce se vede acum?</button>
       <button id="learn">Învață studioul gol</button>
       <button id="forget" class="hidden">Uită studioul învățat</button>
@@ -79,6 +82,6 @@ canvas{position:absolute;inset:0;margin:auto}
   </section>
 </main>
 <div id="say" class="sr" aria-live="assertive" aria-atomic="true"></div>
-<script type="module" src="app.js?v=1"></script>
+<script type="module" src="app.js?v=2"></script>
 </body>
 </html>
