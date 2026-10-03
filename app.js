@@ -257,7 +257,7 @@ function tileHTML(c, kind) {
   const lib = findSame(c);
   const label = `${c.title}${byAuthor(c.author)}${ratingSpoken(c)}${lib ? '. ' + t('inYourLibrary') : ''}`;
   const key = kind === 'lib' ? `data-book="${esc(c.id)}"` : `data-cand="${esc(remember(c))}"`;
-  return `<button class="tile" ${key} aria-label="${esc(label)}">${coverHTML(c)}<div class="t" aria-hidden="true">${esc(c.title)}</div><div class="a" aria-hidden="true">${esc(c.author)}</div>${c.avg ? `<div class="r" aria-hidden="true"><span class="stars">★</span> ${numTxt(c.avg)}${c.ratings ? ` · ${c.ratings}` : ''}</div>` : ''}</button>`;
+  return `<button class="tile" ${key} aria-label="${esc(label)}" ${adjAttrs()}>${coverHTML(c)}<div class="t" aria-hidden="true">${esc(c.title)}</div><div class="a" aria-hidden="true">${esc(c.author)}</div>${c.avg ? `<div class="r" aria-hidden="true"><span class="stars">★</span> ${numTxt(c.avg)}${c.ratings ? ` · ${c.ratings}` : ''}</div>` : ''}</button>`;
 }
 const candStore = {}; function remember(c) { const k = c.ext || ('c' + uid()); candStore[k] = c; return k; }
 function bookRowHTML(b) {
@@ -267,12 +267,12 @@ function bookRowHTML(b) {
   else if (b.status === 'dnf') { sub = `<span>${b.pages ? t('stoppedAt', { p: pct(b) }) : t('stopped')}</span>`; label += '. ' + STATUS('dnf'); }
   else { sub = `<span class="pill">${FORMAT(b.format)}</span>`; }
   const bar = b.status === 'reading' && b.pages ? `<div class="bar"><i style="width:${pct(b)}%"></i></div>` : '';
-  return `<button class="row" data-book="${esc(b.id)}" aria-label="${esc(label)}">${coverHTML(b, 'mini')}<span class="meta" aria-hidden="true"><span class="t">${esc(b.title)}</span><span class="a">${esc(b.author)}</span><span class="s">${sub}</span>${bar}</span><span class="chev" aria-hidden="true">${icon('chev')}</span></button>`;
+  return `<button class="row" data-book="${esc(b.id)}" aria-label="${esc(label)}" ${adjAttrs()}>${coverHTML(b, 'mini')}<span class="meta" aria-hidden="true"><span class="t">${esc(b.title)}</span><span class="a">${esc(b.author)}</span><span class="s">${sub}</span>${bar}</span><span class="chev" aria-hidden="true">${icon('chev')}</span></button>`;
 }
 function candRowHTML(c) {
   const lib = findSame(c);
   const label = `${c.title}${byAuthor(c.author)}${c.year ? ', ' + c.year : ''}${ratingSpoken(c)}`;
-  return `<div class="row" style="cursor:default"><button class="row" style="padding:0;flex:1;min-width:0" data-cand="${esc(remember(c))}" aria-label="${esc(label + '. ' + t('details'))}">${coverHTML(c, 'mini')}<span class="meta" aria-hidden="true"><span class="t">${esc(c.title)}</span><span class="a">${esc(c.author)}</span><span class="s">${c.year ? `<span>${esc(c.year)}</span>` : ''}${c.pages ? `<span>${tn(c.pages, 'page')}</span>` : ''}${c.avg ? `<span><span class="stars">★</span> ${numTxt(c.avg)}</span>` : ''}</span></span></button>
+  return `<div class="row" style="cursor:default"><button class="row" style="padding:0;flex:1;min-width:0" data-cand="${esc(remember(c))}" aria-label="${esc(label)}" ${adjAttrs()}>${coverHTML(c, 'mini')}<span class="meta" aria-hidden="true"><span class="t">${esc(c.title)}</span><span class="a">${esc(c.author)}</span><span class="s">${c.year ? `<span>${esc(c.year)}</span>` : ''}${c.pages ? `<span>${tn(c.pages, 'page')}</span>` : ''}${c.avg ? `<span><span class="stars">★</span> ${numTxt(c.avg)}</span>` : ''}</span></span></button>
     ${lib ? `<button class="addmini done" data-book="${esc(lib.id)}" aria-label="${esc(t('alreadyIn', { title: c.title, shelf: STATUS(lib.status) }))}">${esc(t('inLibraryShort'))}</button>` : `<button class="addmini" data-quickadd="${esc(remember(c))}" aria-label="${esc(t('addToAppNamed', { title: c.title }))}">${esc(t('add'))}</button>`}</div>`;
 }
 function shelfHTML(title, items, kind) {
@@ -605,7 +605,7 @@ pages.history = () => {
   return `${navHTML(t('historyTitle'), { back: backLabel() })}${ev.length ? `<div class="group hist">${ev.map(e => `<div class="cell" style="cursor:default;flex-direction:column;align-items:flex-start;gap:2px"><span>${esc(txt(e) + detail(e))} „${esc(e.title)}”</span><span class="d">${fmtDate(e.date)}</span></div>`).join('')}</div>` : emptyHTML(t('noActivity'), t('noActivityHint'))}`;
 };
 pages.install = () => `${navHTML(t('install'), { back: backLabel() })}<div class="desc">${esc(t('installDesc'))}</div>`;
-pages.about = () => `${navHTML(t('about'), { back: backLabel() })}<div class="desc">${esc(t('aboutDesc', { v: '0.4' }))}</div>`;
+pages.about = () => `${navHTML(t('about'), { back: backLabel() })}<div class="desc">${esc(t('aboutDesc', { v: '0.4.4' }))}</div>`;
 pages.list = id => {
   const l = listById(id); if (!l) return navHTML(t('list'), { back: backLabel() }) + emptyHTML(t('listGone'), '');
   const items = sortBooks(S.books.filter(b => (b.lists || []).includes(id)), 'list');
@@ -698,10 +698,9 @@ function quickAddSheet(c) {
   <div class="label">${esc(t('whichShelf'))}</div><div class="group">${STATUS_KEYS.filter(k => k !== 'dnf').map((k, i) => cell({ attrs: `data-addto="${k}" data-c="${esc(remember(c))}" ${i === 0 ? 'autofocus' : ''}`, label: STATUS(k), aria: t('addTo', { x: STATUS(k) }) })).join('')}</div>`;
 }
 /* long-press menu */
-function actionSheet(kind, key) {
+function actionOpts(kind, key) {
   const b = kind === 'book' ? byId(key) : null, c = kind === 'cand' ? candStore[key] : null;
-  const item = b || c; if (!item) return;
-  const ref = b ? `data-ab="${esc(b.id)}"` : `data-ac="${esc(key)}"`;
+  const item = b || c; if (!item) return null;
   const lib = b || findSame(c);
   const opts = [];
   if (!lib || lib.status !== 'want') opts.push(['want', t('act_want')]);
@@ -709,8 +708,25 @@ function actionSheet(kind, key) {
   opts.push(['rate', t('act_rate')], ['open', t('act_open')]);
   if (item.author) opts.push(['author', t('act_author', { a: item.author.split(',')[0] })]);
   if (lib) opts.push(['lists', t('addToList')]);
-  openSheet(`${sheetHead(item.title)}<div class="group">${opts.map(([k, v], i) => cell({ attrs: `data-act="${k}" ${ref} ${i === 0 ? 'autofocus' : ''}`, label: v, chev: false })).join('')}</div>`, t('optionsFor', { x: item.title }));
+  return { b, c, item, opts };
 }
+function actionSheet(kind, key) {
+  const r = actionOpts(kind, key); if (!r) return;
+  const ref = r.b ? `data-ab="${esc(r.b.id)}"` : `data-ac="${esc(key)}"`;
+  openSheet(`${sheetHead(r.item.title)}<div class="group">${r.opts.map(([k, v], i) => cell({ attrs: `data-act="${k}" ${ref} ${i === 0 ? 'autofocus' : ''}`, label: v, chev: false })).join('')}</div>`, t('optionsFor', { x: r.item.title }));
+}
+/* VoiceOver: swipe up/down on a title cycles the same options (adjustable element); double tap runs the one heard */
+function adjOpts(it) {
+  const r = actionOpts(it.dataset.book ? 'book' : 'cand', it.dataset.book || it.dataset.cand); if (!r) return [];
+  return [['open', t('act_open')], ...r.opts.filter(o => o[0] !== 'open')];
+}
+function adjAttrs() { return `role="slider" aria-valuemin="0" aria-valuemax="9" aria-valuenow="0" aria-valuetext="${esc(t('act_open'))}" data-ai="0"`; }
+function adjStep(it, dir) {
+  const o = adjOpts(it); if (!o.length) return;
+  const i = ((+it.dataset.ai || 0) + dir + o.length) % o.length;
+  it.dataset.ai = i; it.setAttribute('aria-valuemax', o.length - 1); it.setAttribute('aria-valuenow', i); it.setAttribute('aria-valuetext', o[i][1]);
+}
+function adjReset(it) { it.dataset.ai = 0; it.setAttribute('aria-valuenow', 0); it.setAttribute('aria-valuetext', t('act_open')); }
 function rateSheet(b) {
   return `${sheetHead(t('rateTitle', { title: b.title }), `<button class="strong" data-close>${esc(t('done'))}</button>`)}
   <div class="group">${slider({ id: 'rateR2', label: t('yourRatingLabel'), min: 0, max: 5, step: 0.5, value: b.rating || 0, text: rateTxt(b.rating || 0), extra: `data-rater="${esc(b.id)}" autofocus` })}<div class="field stars big" id="rateStars" aria-hidden="true">${starsTxt(b.rating || 0) || '☆☆☆☆☆'}</div></div>`;
@@ -828,6 +844,7 @@ document.addEventListener('click', e => {
   if (d.libseg) { if (tab !== 'library') { tab = 'library'; stack.library = []; } libSeg = d.libseg; render(true); return; }
   if (el.hasAttribute('data-month')) { const i = +d.month; push('month', `${statYear}-${i}`, `${MONTH(i)} ${statYear}`); return; }
   if (d.year) { statYear = +d.year; openMonths.clear(); render(); $(`[data-year="${statYear}"]`)?.focus(); return; }
+  if (d.ai && d.ai !== '0' && (d.book || d.cand)) { const o = adjOpts(el)[+d.ai]; adjReset(el); if (o) doAction(o[0], d.book, d.book ? null : d.cand); return; }
   if (d.book) { const b = byId(d.book); if (b) { closeSheet(true); openSheet(bookSheet(b), b.title); } return; }
   if (d.cand) { const c = candStore[d.cand]; if (c) openSheet(candSheet(c), c.title); return; }
   if (d.quickadd) { const c = candStore[d.quickadd]; if (c) openSheet(quickAddSheet(c), t('add')); return; }
@@ -917,6 +934,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && $('#sheets').innerHTML) closeSheet();
   const el = e.target;
   if (el.getAttribute && el.getAttribute('role') === 'tab' && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { const tabs = [...el.parentElement.querySelectorAll('[role=tab]')]; const i = tabs.indexOf(el); const n = tabs[(i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length]; n.focus(); n.click(); }
+  if (el.dataset && el.dataset.ai !== undefined && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) { e.preventDefault(); adjStep(el, e.key === 'ArrowDown' || e.key === 'ArrowLeft' ? 1 : -1); return; }
   if ((e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) && el.closest) { const it = el.closest('[data-book],[data-cand]'); if (it) { e.preventDefault(); openActionsFor(it); } }
 });
 /* long press (also VoiceOver double-tap-and-hold) and right click open the options menu */
