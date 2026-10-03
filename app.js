@@ -244,7 +244,7 @@ function yearsWithData() {
   return [...ys].filter(Boolean).sort((a, b) => b - a);
 }
 function best(arr, key, labelFn) { let bi = -1, bv = 0; arr.forEach((x, i) => { if (x[key] > bv) { bv = x[key]; bi = i; } }); return bi < 0 ? null : { label: labelFn(bi), v: bv }; }
-const readInMonth = i => S.books.filter(b => b.status === 'read' && b.dateFinished && +b.dateFinished.slice(5, 7) === i + 1).sort((a, b) => String(b.dateFinished).localeCompare(String(a.dateFinished)));
+const readInMonth = (i, y) => S.books.filter(b => b.status === 'read' && b.dateFinished && +b.dateFinished.slice(0, 4) === y && +b.dateFinished.slice(5, 7) === i + 1).sort((a, b) => String(b.dateFinished).localeCompare(String(a.dateFinished)));
 
 /* ================= components ================= */
 function coverHTML(b, cls = '') {
@@ -359,12 +359,12 @@ function statsHTML() {
     <div class="stat" role="group" aria-label="${esc(t('readingTimeIn', { x: hoursSpoken(tot.minutes), y: statYear }))}"><div class="n" aria-hidden="true">${(Math.round(tot.minutes / 6) / 10).toLocaleString(LOC())}</div><div class="l" aria-hidden="true">${esc(t('readingHours'))}</div></div>
     <div class="stat" role="group" aria-label="${esc(t('goalXofY', { x: tot.books, y: goal }))}"><div class="n" aria-hidden="true">${Math.min(100, Math.round(tot.books / goal * 100))}%</div><div class="l" aria-hidden="true">${esc(t('ofGoal', { n: goal }))}</div></div></div>`;
   if (isCur) h += `<div class="label">${esc(t('goalFor', { y: statYear }))}</div><div class="group">${slider({ id: 'goalR', label: t('yearlyGoal'), min: 1, max: Math.max(200, goal), value: goal, text: goalText(goal), extra: 'data-goalr' })}</div>`;
-  // monthly folders, all years together
-  h += `<div class="label">${esc(t('monthsAllYears'))}</div><div class="group">${Array.from({ length: 12 }, (_, i) => {
-    const list = readInMonth(i), open = openMonths.has(i);
-    return `<button class="cell" data-month="${i}" aria-expanded="${open}" aria-label="${esc(MONTH(i) + ', ' + tn(list.length, 'book'))}"><span class="ico" style="background:#2B7BE4" aria-hidden="true">${icon('folder')}</span><span class="grow">${esc(MONTH(i))}</span><span class="val">${list.length}</span><span class="chev ${open ? 'open' : ''}" aria-hidden="true">${icon('chev')}</span></button>${open ? (list.length ? `<div class="sub" role="list">${list.map(b => `<div role="listitem">${bookRowHTML(b)}</div>`).join('')}</div>` : `<div class="sub foot" style="padding:10px 16px">${esc(t('noBooksMonth'))}</div>`) : ''}`;
+  // one folder per month of the selected year (the current year by default)
+  h += `<div class="label">${esc(t('monthsOfYear', { y: statYear }))}</div><div class="group">${m.map((x, i) => {
+    const list = readInMonth(i, statYear), open = openMonths.has(i);
+    const aria = MONTH(i) + ': ' + tn(list.length, 'book') + (x.pages ? ', ' + tn(x.pages, 'page') : '') + (x.minutes ? ', ' + hoursSpoken(x.minutes) : '');
+    return `<button class="cell" data-month="${i}" aria-expanded="${open}" aria-label="${esc(aria)}"><span class="ico" style="background:#2B7BE4" aria-hidden="true">${icon('folder')}</span><span class="grow">${esc(MONTH(i))}<div class="mb" aria-hidden="true"><i style="width:${Math.round(x.books / maxB * 100)}%"></i></div></span><span class="val">${list.length}</span><span class="chev ${open ? 'open' : ''}" aria-hidden="true">${icon('chev')}</span></button>${open ? (list.length ? `<div class="sub" role="list">${list.map(b => `<div role="listitem">${bookRowHTML(b)}</div>`).join('')}</div>` : `<div class="sub foot" style="padding:10px 16px">${esc(t('noBooksMonth'))}</div>`) : ''}`;
   }).join('')}</div>`;
-  h += `<div class="label">${esc(t('byMonthYear', { y: statYear }))}</div><div class="group months">${m.map((x, i) => `<div class="mrow" role="group" aria-label="${esc(MONTH(i) + ': ' + tn(x.books, 'book') + ', ' + tn(x.pages, 'page') + ', ' + hoursSpoken(x.minutes))}"><span class="mn" aria-hidden="true">${esc(MONTH(i))}</span><span aria-hidden="true"><span class="mv">${esc(tn(x.books, 'book'))} · ${x.pages} ${esc(t('pagesShort'))} · ${hours(x.minutes)}</span><div class="mb"><i style="width:${Math.round(x.books / maxB * 100)}%"></i></div></span></div>`).join('')}</div>`;
   const line = (a, b, unit) => infoRow(a, b ? `${b.label} (${unit(b.v)})` : '–');
   h += `<div class="label">${esc(t('records', { y: statYear }))}</div><div class="group">${line(t('mostBooks'), bm, v => tn(v, 'book'))}${line(t('mostPages'), bp, v => v + ' ' + t('pagesShort'))}${line(t('mostTime'), bt, hours)}</div>`;
   h += `<div class="label">${esc(t('allYears'))}</div><div class="group">${line(t('yearMostBooks'), by, v => tn(v, 'book'))}${line(t('yearMostPages'), byp, v => v + ' ' + t('pagesShort'))}${line(t('yearMostTime'), byt, hours)}</div>`;
@@ -822,7 +822,7 @@ document.addEventListener('click', e => {
   if (d.push) { const titles = { profile: t('editProfile'), account: t('account'), settings: t('settings'), import: t('import'), backup: t('backup'), history: t('historyTitle'), install: t('install'), about: t('about'), stats: t('stats'), language: t('language') }; push(d.push, null, titles[d.push]); return; }
   if (d.libseg) { if (tab !== 'library') { tab = 'library'; stack.library = []; } libSeg = d.libseg; render(true); return; }
   if (d.month !== undefined && el.hasAttribute('data-month')) { const i = +d.month; if (openMonths.has(i)) openMonths.delete(i); else openMonths.add(i); render(); $(`[data-month="${i}"]`)?.focus(); say(openMonths.has(i) ? t('expanded') : t('collapsed')); return; }
-  if (d.year) { statYear = +d.year; render(); $(`[data-year="${statYear}"]`)?.focus(); return; }
+  if (d.year) { statYear = +d.year; openMonths.clear(); render(); $(`[data-year="${statYear}"]`)?.focus(); return; }
   if (d.book) { const b = byId(d.book); if (b) { closeSheet(true); openSheet(bookSheet(b), b.title); } return; }
   if (d.cand) { const c = candStore[d.cand]; if (c) openSheet(candSheet(c), c.title); return; }
   if (d.quickadd) { const c = candStore[d.quickadd]; if (c) openSheet(quickAddSheet(c), t('add')); return; }
