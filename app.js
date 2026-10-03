@@ -1,4 +1,4 @@
-/* Raftul Meu — reading app built for VoiceOver. User data stays on the phone (localStorage).
+/* Regatul Cărților — reading app built for VoiceOver. User data stays on the phone (localStorage).
    Catalog: Google Books, Voxa and Open Library. Texts come from i18n.js (I18N). */
 (() => {
 'use strict';
@@ -902,9 +902,9 @@ document.addEventListener('submit', e => {
 });
 function exportBackup() {
   const blob = new Blob([JSON.stringify(S, null, 1)], { type: 'application/json' });
-  const name = `raftul-meu-${today()}.json`;
+  const name = `regatul-cartilor-${today()}.json`;
   const file = new File([blob], name, { type: 'application/json' });
-  if (navigator.canShare && navigator.canShare({ files: [file] })) { navigator.share({ files: [file], title: 'Raftul Meu' }).catch(() => {}); return; }
+  if (navigator.canShare && navigator.canShare({ files: [file] })) { navigator.share({ files: [file], title: 'Regatul Cărților' }).catch(() => {}); return; }
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   toast(t('backupSaved'));
 }

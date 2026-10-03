@@ -1,8 +1,8 @@
 {
-  "name": "Raftul Meu",
-  "short_name": "Raftul Meu",
-  "description": "Biblioteca ta de cărți, în limba română, accesibilă cu VoiceOver.",
-  "lang": "ro",
+  "name": "Regatul Cărților",
+  "short_name": "Regatul Cărților",
+  "description": "Your book library, accessible with VoiceOver.",
+  "lang": "en",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
