@@ -1,5 +1,5 @@
 /* Raftul Meu — aplicație de lectură în limba română, gândită pentru VoiceOver.
-   Datele utilizatorului stau pe telefon (localStorage). Catalogul extern: Google Books, cu Open Library ca rezervă. */
+   Datele utilizatorului stau pe telefon (localStorage). Catalogul extern: Google Books, Voxa și Open Library, cărți din orice țară. */
 (() => {
 'use strict';
 
@@ -9,12 +9,13 @@ const FORMATS = { print: 'Tipărită', ebook: 'eBook', audio: 'Audiobook' };
 const MONTHS = ['Ianuarie','Februarie','Martie','Aprilie','Mai','Iunie','Iulie','August','Septembrie','Octombrie','Noiembrie','Decembrie'];
 const COLORS = ['#2448B8','#B0413E','#2E7D5B','#8A5A2B','#6B4FA3','#1F7A8C','#A2662A','#4B5563','#9C3D6E','#3F6E2A'];
 const GENRES = [
-  ['Romane', 'subject:fiction'], ['Literatură română', 'literatura romana'], ['Poezie', 'subject:poetry'],
+  ['Romane', 'subject:fiction'], ['Literatură română', 'literatura romana'], ['Clasici', 'subject:classics'], ['Poezie', 'subject:poetry'],
   ['Istorie', 'subject:history'], ['Psihologie', 'subject:psychology'], ['Dezvoltare personală', 'subject:self-help'],
   ['Fantasy', 'subject:fantasy'], ['Science fiction', 'subject:"science fiction"'], ['Polițiste', 'subject:mystery'],
   ['Copii', 'subject:juvenile'], ['Muzică', 'subject:music'], ['Religie', 'subject:religion'], ['Biografii', 'subject:biography']
 ];
-const AUTHORS = ['Mircea Eliade','Liviu Rebreanu','Marin Preda','Mircea Cărtărescu','Mihail Sadoveanu','Lucian Blaga','Mihai Eminescu','Ion Creangă','Camil Petrescu','Ana Blandiana','Gabriela Adameșteanu','Herta Müller'];
+const AUTHORS = ['Liviu Rebreanu','Mircea Cărtărescu','Mircea Eliade','Ana Blandiana','Fiodor Dostoievski','Lev Tolstoi','Gabriel García Márquez','Haruki Murakami','Agatha Christie','Stephen King','Jane Austen','George Orwell','Yuval Noah Harari','Freida McFadden'];
+const GB_KEY = 'AIzaSyDo2zgdcJa20QAX8toPECUUZMAMsNyR5SI';   // cheie Google Books, merge doar de pe razvan-raftul.github.io
 const KEY = 'raftul-meu-v2';
 
 /* ================= stare ================= */
@@ -47,7 +48,10 @@ const color = s => COLORS[[...String(s || '?')].reduce((h, c) => h + c.charCodeA
 const plural = (n, one, many) => n === 1 ? `1 ${one}` : `${n} ${many}`;
 const hours = m => { const h = Math.floor(m / 60), r = Math.round(m % 60); return h ? (r ? `${h} h ${r} min` : `${h} h`) : `${r} min`; };
 const hoursSpoken = m => { const h = Math.floor(m / 60), r = Math.round(m % 60); const hs = h === 1 ? '1 oră' : `${h} ore`; const ms = r === 1 ? '1 minut' : `${r} minute`; return h ? (r ? `${hs} și ${ms}` : hs) : ms; };
-const starsTxt = n => n ? '★'.repeat(n) + '☆'.repeat(5 - n) : '';
+const starsTxt = n => { if (!n) return ''; const f = Math.floor(n), h = n - f >= 0.5 ? 1 : 0; return '★'.repeat(f) + (h ? '½' : '') + '☆'.repeat(5 - f - h); };
+const rateTxt = n => n ? `${String(n).replace('.', ',')} ${n === 1 ? 'stea' : 'stele'}` : 'Fără notă';
+const slider = ({ id, name = '', label, min, max, step = 1, value, text, extra = '' }) => `<div class="field"><label for="${id}">${esc(label)}</label><div class="range"><input type="range" id="${id}" ${name ? `name="${name}"` : ''} min="${min}" max="${max}" step="${step}" value="${value}" aria-valuetext="${esc(text)}" ${extra}><output for="${id}" aria-hidden="true">${esc(text)}</output></div></div>`;
+const goalText = g => plural(g, 'carte', 'cărți') + ' pe an';
 const pct = b => b.pages ? Math.min(100, Math.round((b.page || 0) / b.pages * 100)) : 0;
 const icon = name => ICONS[name] || '';
 function say(msg) { const l = $('#live'); l.textContent = ''; setTimeout(() => { l.textContent = msg; }, 80); }
@@ -104,24 +108,43 @@ async function catalog(q, opts = {}) {
   const k = JSON.stringify([q, opts, S.settings.onlyRo]);
   if (cache[k]) return cache[k];
   const p = new URLSearchParams({ q, maxResults: String(opts.max || 20), printType: 'books' });
-  if (S.settings.onlyRo && !opts.anyLang) p.set('langRestrict', 'ro');
   if (opts.order) p.set('orderBy', opts.order);
   let out = [];
-  try {
-    const r = await fetch('https://www.googleapis.com/books/v1/volumes?' + p.toString());
-    if (r.ok) { const j = await r.json(); out = (j.items || []).map(gbToBook); }
-  } catch (e) {}
+  try { out = (await gbFetch(p)).map(gbToBook); } catch (e) {}
   if (!out.length && !opts.noFallback) {
     try {
       const op = new URLSearchParams({ q: q.replace(/subject:|inauthor:|isbn:/g, ''), limit: String(opts.max || 20), fields: 'key,title,author_name,first_publish_year,number_of_pages_median,cover_i,isbn,publisher,subject,ratings_average,ratings_count' });
-      if (S.settings.onlyRo && !opts.anyLang) op.set('language', 'rum');
       const r = await fetch('https://openlibrary.org/search.json?' + op.toString());
       if (r.ok) { const j = await r.json(); out = (j.docs || []).map(olToBook); }
     } catch (e) {}
   }
   // elimină dublurile
   const seen = new Set(); out = out.filter(b => { const k2 = norm(b.title) + '|' + norm(b.author).split(' ')[0]; if (seen.has(k2)) return false; seen.add(k2); return true; });
+  if (S.settings.onlyRo) out = [...out.filter(b => b.lang === 'ro'), ...out.filter(b => b.lang !== 'ro')];
   cache[k] = out; return out;
+}
+async function gbFetch(p) {
+  // cu cheia proprie; dacă cheia nu e acceptată (de ex. altă adresă), încearcă și fără ea
+  for (const withKey of [true, false]) {
+    const q = new URLSearchParams(p); if (withKey) q.set('key', GB_KEY);
+    try { const r = await fetch('https://www.googleapis.com/books/v1/volumes?' + q.toString()); if (r.ok) { const j = await r.json(); return j.items || []; } } catch (e) {}
+  }
+  return [];
+}
+/* Voxa: catalog românesc de audiobook-uri și ebook-uri (folosit doar pentru căutare) */
+async function voxaSearch(q) {
+  try {
+    const r = await fetch('https://api.voxabooks.com/api/v1/client/search/all?' + new URLSearchParams({ query: q }).toString());
+    if (!r.ok) return [];
+    const j = await r.json();
+    return (Array.isArray(j) ? j : []).filter(v => v && v.title && !/rezumat|summary|comentariu|recenzie/i.test(v.title)).map((v, i) => {
+      const isbn = String(v.isbn || '').replace(/[^0-9X]/gi, '');
+      return { ext: 'vx:' + v.id, title: String(v.title).trim(), author: (v.authors || []).map(a => a.name).join(', '), pages: v.pages_count || 0, year: '',
+        publisher: 'Voxa', description: String(v.description || '').replace(/<[^>]+>/g, ''), isbn: isbn.length === 10 || isbn.length === 13 ? isbn : '',
+        cover: (v.image && (v.image.default_320x320 || v.image.url)) || '', categories: (v.tags || []).map(t => t.name).filter(n => !/noutat|voxa/i.test(n)).slice(0, 3),
+        avg: v.ratings_avg || 0, ratings: v.ratings_count || 0, lang: v.language || '', format: v.type === 'Ebook' ? 'ebook' : 'audio', _src: 'vx', _i: i };
+    });
+  } catch (e) { return []; }
 }
 const inLibrary = ext => S.books.find(b => b.ext && b.ext === ext);
 const findSame = c => S.books.find(b => (c.ext && b.ext === c.ext) || (c.isbn && b.isbn === c.isbn) || (norm(b.title) === norm(c.title) && norm(b.author) === norm(c.author)));
@@ -199,7 +222,7 @@ const candStore = {}; function remember(c) { const k = c.ext || ('c' + uid()); c
 function bookRowHTML(b) {
   let sub = '', label = `${b.title}${b.author ? ', de ' + b.author : ''}`;
   if (b.status === 'reading') { sub = b.pages ? `<span>${pct(b)}% · pagina ${b.page || 0} din ${b.pages}</span>` : `<span>${FORMATS[b.format]}</span>`; if (b.pages) label += `. ${pct(b)} la sută citit`; }
-  else if (b.status === 'read') { sub = `${b.rating ? `<span class="stars">${starsTxt(b.rating)}</span>` : ''}${b.dateFinished ? `<span>${fmtDate(b.dateFinished)}</span>` : ''}`; if (b.rating) label += `. Nota ta ${b.rating} stele`; if (b.dateFinished) label += `. Terminată pe ${fmtDate(b.dateFinished)}`; }
+  else if (b.status === 'read') { sub = `${b.rating ? `<span class="stars">${starsTxt(b.rating)}</span>` : ''}${b.dateFinished ? `<span>${fmtDate(b.dateFinished)}</span>` : ''}`; if (b.rating) label += `. Nota ta ${rateTxt(b.rating)}`; if (b.dateFinished) label += `. Terminată pe ${fmtDate(b.dateFinished)}`; }
   else if (b.status === 'dnf') { sub = `<span>Oprită${b.pages ? ` la ${pct(b)}%` : ''}</span>`; label += '. Nefinalizată'; }
   else { sub = `<span class="pill">${FORMATS[b.format]}</span>`; }
   const bar = b.status === 'reading' && b.pages ? `<div class="bar"><i style="width:${pct(b)}%"></i></div>` : '';
@@ -291,7 +314,7 @@ function statsHTML() {
     <div class="stat" role="group" aria-label="${tot.pages} pagini în ${statYear}"><div class="n" aria-hidden="true">${tot.pages.toLocaleString('ro-RO')}</div><div class="l" aria-hidden="true">pagini</div></div>
     <div class="stat" role="group" aria-label="${hoursSpoken(tot.minutes)} de lectură în ${statYear}"><div class="n" aria-hidden="true">${(Math.round(tot.minutes / 6) / 10).toLocaleString('ro-RO')}</div><div class="l" aria-hidden="true">ore de lectură</div></div>
     <div class="stat" role="group" aria-label="Obiectiv: ${tot.books} din ${goal}"><div class="n" aria-hidden="true">${Math.min(100, Math.round(tot.books / goal * 100))}%</div><div class="l" aria-hidden="true">din obiectivul de ${goal}</div></div></div>`;
-  if (isCur) h += `<div class="label">Obiectivul pe ${statYear}</div><div class="group"><div class="field"><div class="stepper"><button data-goal="-1" aria-label="Scade obiectivul">−</button><output aria-live="polite">${plural(goal, 'carte', 'cărți')}</output><button data-goal="1" aria-label="Crește obiectivul">+</button></div></div></div>`;
+  if (isCur) h += `<div class="label">Obiectivul pe ${statYear}</div><div class="group">${slider({ id: 'goalR', label: 'Obiectiv anual', min: 1, max: Math.max(200, goal), value: goal, text: goalText(goal), extra: 'data-goalr' })}</div>`;
   h += `<div class="label">Pe luni, ${statYear}</div><div class="group months">${m.map((x, i) => `<div class="mrow" role="group" aria-label="${MONTHS[i]}: ${plural(x.books, 'carte', 'cărți')}, ${x.pages} pagini, ${hoursSpoken(x.minutes)}"><span class="mn" aria-hidden="true">${MONTHS[i]}</span><span aria-hidden="true"><span class="mv">${plural(x.books, 'carte', 'cărți')} · ${x.pages} pag. · ${hours(x.minutes)}</span><div class="mb"><i style="width:${Math.round(x.books / maxB * 100)}%"></i></div></span></div>`).join('')}</div>`;
   const line = (t, b, unit) => b ? `<div class="cell" style="cursor:default"><span class="grow">${t}</span><span class="val">${b.label} (${unit(b.v)})</span></div>` : `<div class="cell" style="cursor:default"><span class="grow">${t}</span><span class="val">–</span></div>`;
   h += `<div class="label">Recorduri ${statYear}</div><div class="group">${line('Cele mai multe cărți', bm, v => plural(v, 'carte', 'cărți'))}${line('Cele mai multe pagini', bp, v => v + ' pag.')}${line('Cel mai mult timp', bt, hours)}</div>`;
@@ -321,45 +344,148 @@ async function loadDiscover() {
 
 screens.search = () => {
   let h = navHTML('Caută');
-  h += `<form id="searchForm" role="search"><div class="search">${icon('search')}<input id="q" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="off" placeholder="Titlu, autor sau ISBN" aria-label="Caută după titlu, autor sau ISBN. Poți folosi dictarea, de exemplu: Adaugă Harry Potter și piatra filozofală" value="${esc(searchState.q)}"></div></form>`;
-  h += `<div class="foot">Sfat: apasă microfonul de pe tastatură și spune, de exemplu, „Adaugă Ion de Liviu Rebreanu”.</div>`;
+  h += `<form id="searchForm" role="search"><div class="search">${icon('search')}<input id="q" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="off" placeholder="Titlul cărții" aria-label="Titlul cărții. Poți scrie și autorul sau ISBN-ul; rezultatele apar singure" value="${esc(searchState.q)}"></div></form>`;
+  h += `<div class="foot">Poți scrie titlul, doar o parte din el sau numele autorului. Rezultatele apar singure după ce te oprești din scris. Dacă dictezi și începi cu „Adaugă”, ajungi direct la butonul de adăugare.</div>`;
   h += `<div id="sres">${searchResultsHTML()}</div>`;
   return h;
 };
+/* ---- căutare ca pe Goodreads: scrii o parte din titlu SAU numele autorului, rezultatele apar pe măsură ce scrii ---- */
+let searchSeq = 0, liveT = null;
+async function gbSearch(q, max) {
+  const items = await gbFetch(new URLSearchParams({ q, maxResults: String(max), printType: 'books' }));
+  return items.map((v, i) => ({ ...gbToBook(v), _src: 'gb', _i: i }));
+}
+async function olSearch(q, max) {
+  try {
+    const p = new URLSearchParams({ q, limit: String(max), fields: 'key,title,author_name,first_publish_year,number_of_pages_median,cover_i,isbn,publisher,subject,ratings_average,ratings_count,language,edition_count' });
+    const r = await fetch('https://openlibrary.org/search.json?' + p.toString());
+    if (!r.ok) return [];
+    const j = await r.json();
+    return (j.docs || []).map((d, i) => ({ ...olToBook(d), lang: (d.language || []).includes('rum') ? 'ro' : '', _ed: d.edition_count || 0, _src: 'ol', _i: i }));
+  } catch (e) { return []; }
+}
+async function olAuthors(q) {
+  try {
+    const r = await fetch('https://openlibrary.org/search/authors.json?' + new URLSearchParams({ q, limit: '5' }).toString());
+    if (!r.ok) return [];
+    const j = await r.json(); return (j.docs || []).filter(a => a.name && (a.work_count || 0) >= 3).map(a => ({ name: a.name, works: a.work_count || 0, top: a.top_work || '' }));
+  } catch (e) { return []; }
+}
+function scoreCand(c, qn, toks, hint) {
+  const t = norm(c.title), a = norm(c.author), all = t + ' ' + a;
+  let s = 0;
+  const hits = toks.filter(w => all.includes(w)).length;
+  s += hits / (toks.length || 1) * 60;                       // câte cuvinte din căutare se regăsesc
+  if (toks.length && toks.every(w => all.split(' ').some(x => x.startsWith(w)))) s += 20;
+  if (t === qn) s += 45; else if (t.startsWith(qn)) s += 30; else if (t.includes(qn)) s += 15;
+  if (a && (a === qn || a.includes(qn))) s += 25;             // ai scris numele autorului
+  if (hint) { if (t.includes(norm(hint.title))) s += 30; if (a.includes(norm(hint.author))) s += 30; }
+  s += Math.log10((c.ratings || 0) + (c._ed || 0) * 3 + 1) * 9; // popularitate
+  if (S.settings.onlyRo && c.lang === 'ro') s += 22;
+  if (c.cover) s += 4;
+  if (c._src === 'gb' || c._src === 'vx') s += Math.max(0, 12 - c._i);   // ordinea sursei contează puțin
+  return s;
+}
+function mergeCands(list, qn, toks, hint) {
+  const by = new Map();
+  for (const c of list) {
+    const k = norm(c.title).split(' ').slice(0, 6).join(' ') + '|' + norm(c.author).split(' ').pop();
+    const ex = by.get(k);
+    if (!ex) { by.set(k, c); continue; }
+    // păstrează varianta mai bună, dar completează ce lipsește
+    const keep = (c.lang === 'ro' && S.settings.onlyRo && ex.lang !== 'ro') || (!ex.cover && c.cover && c._src === ex._src) ? c : ex;
+    const other = keep === c ? ex : c;
+    for (const f of ['cover', 'pages', 'isbn', 'year', 'description', 'publisher', 'format']) if (!keep[f] && other[f]) keep[f] = other[f];
+    keep.ratings = Math.max(keep.ratings || 0, other.ratings || 0); keep.avg = keep.avg || other.avg; keep._ed = Math.max(keep._ed || 0, other._ed || 0);
+    by.set(k, keep);
+  }
+  return [...by.values()].map(c => ({ c, s: scoreCand(c, qn, toks, hint) })).sort((x, y) => y.s - x.s).map(x => x.c);
+}
+async function findBooks(q) {
+  const key = JSON.stringify(['find', q, S.settings.onlyRo]);
+  if (cache[key]) return cache[key];
+  const digits = q.replace(/[^0-9xX]/g, '');
+  if ((digits.length === 10 || digits.length === 13) && digits.length >= q.replace(/[\s-]/g, '').length - 1) {
+    const r = await catalog('isbn:' + digits, { max: 5, anyLang: true });
+    return cache[key] = { books: r, authors: [] };
+  }
+  const byMatch = q.match(/^(.+?)\s+de\s+(.+)$/i);
+  const hint = byMatch ? { title: byMatch[1], author: byMatch[2] } : null;
+  const plain = hint ? `${hint.title} ${hint.author}` : q;
+  const jobs = [gbSearch(plain, 30), olSearch(plain, 30), hint ? Promise.resolve([]) : olAuthors(q), voxaSearch(plain)];
+  const [gb, ol, au, vx] = await Promise.all(jobs);
+  const olro = [];
+  const qn = norm(plain), toks = qn.split(' ').filter(w => w.length > 1);
+  const books = mergeCands([...vx, ...gb, ...ol, ...olro], qn, toks, hint).slice(0, 30);
+  // autorii apar doar dacă ce ai scris seamănă cu numele lor
+  const authors = au.filter(a => { const n = norm(a.name); return toks.length && toks.every(w => n.split(' ').some(x => x.startsWith(w))); }).slice(0, 3);
+  const res = { books, authors };
+  if (books.length) cache[key] = res;
+  return res;
+}
+function localMatches(q) {
+  const toks = norm(q).split(' ').filter(Boolean); if (!toks.length) return [];
+  return S.books.filter(b => { const all = norm(b.title + ' ' + b.author); return toks.every(w => all.includes(w)); }).slice(0, 5);
+}
 function searchResultsHTML() {
-  if (searchState.loading) return '<div class="spin" role="status">Caut…</div>';
+  if (searchState.loading && !searchState.results) return '<div class="spin" role="status">Caut…</div>';
   if (searchState.err) return emptyHTML('Căutarea nu a mers', searchState.err);
   if (!searchState.results) {
     const recent = S.books.slice(-5).reverse();
     return recent.length ? `<div class="label">Adăugate recent</div><div class="group">${recent.map(bookRowHTML).join('')}</div>` : '';
   }
-  if (!searchState.results.length) return emptyHTML('Nicio carte găsită', 'Verifică titlul sau încearcă doar numele autorului. Poți adăuga cartea și manual.') + `<div class="btns"><button class="btn plain" data-manual>Adaugă manual „${esc(searchState.q)}”</button></div>`;
-  return `<div class="label">${plural(searchState.results.length, 'rezultat', 'rezultate')}</div><div class="group" role="list">${searchState.results.map(c => `<div role="listitem">${candRowHTML(c)}</div>`).join('')}</div><div class="btns"><button class="btn plain" data-manual>Nu găsesc cartea, o adaug manual</button></div>`;
+  const mine = localMatches(searchState.q), au = searchState.authors || [], r = searchState.results;
+  let h = '';
+  if (mine.length) h += `<div class="label">În biblioteca ta</div><div class="group">${mine.map(bookRowHTML).join('')}</div>`;
+  if (au.length) h += `<div class="label">Autori</div><div class="group">${au.map(a => cell({ attrs: `data-author="${esc(a.name)}"`, ico: 'person', icoColor: '#2B7BE4', label: a.name, aria: `Autor: ${a.name}, ${a.works} cărți${a.top ? ', cea mai cunoscută ' + a.top : ''}. Vezi cărțile` })).join('')}</div>`;
+  if (!r.length && !mine.length && !au.length) return emptyHTML('Nicio carte găsită', 'Încearcă doar un cuvânt din titlu sau doar numele autorului. Poți adăuga cartea și manual.') + `<div class="btns"><button class="btn plain" data-manual>Adaugă manual „${esc(searchState.q)}”</button></div>`;
+  if (r.length) h += `<div class="label">${plural(r.length, 'carte găsită', 'cărți găsite')}</div><div class="group" role="list">${r.map(c => `<div role="listitem">${candRowHTML(c)}</div>`).join('')}</div>`;
+  return h + `<div class="btns"><button class="btn plain" data-manual>Nu găsesc cartea, o adaug manual</button></div>`;
 }
-async function runSearch(raw) {
+async function runSearch(raw, live = false) {
   let q = String(raw || '').trim(); if (!q) return;
   let auto = false;
   const m = q.match(/^(adaug[aă]|pune|adauga)\s+(cartea\s+)?(.+)$/i);
-  if (m) { q = m[3]; auto = true; }
+  if (m) { q = m[3]; auto = !live; }
   q = q.replace(/[.!?]+$/, '');
-  searchState = { q, results: null, loading: true, err: '', autoAdd: auto };
+  const seq = ++searchSeq;
+  searchState = { q, results: live ? searchState.results : null, authors: live ? searchState.authors : [], loading: true, err: '', autoAdd: auto };
+  if (!live) renderPart('#sres', searchResultsHTML());
+  const { books, authors } = await findBooks(q);
+  if (seq !== searchSeq) return;                              // între timp ai scris altceva
+  searchState.loading = false; searchState.results = books; searchState.authors = authors;
+  if (navigator.onLine === false && !books.length) searchState.err = 'Nu există conexiune la internet.';
   renderPart('#sres', searchResultsHTML());
-  const digits = q.replace(/[^0-9xX]/g, '');
-  let query = q;
-  const byMatch = q.match(/^(.+?)\s+de\s+(.+)$/i);
-  if (digits.length === 10 || digits.length === 13) query = 'isbn:' + digits;
-  else if (byMatch) query = `intitle:"${byMatch[1]}" inauthor:"${byMatch[2]}"`;
-  let r = await catalog(query, { max: 25 });
-  if (!r.length && S.settings.onlyRo) r = await catalog(query, { max: 25, anyLang: true });
-  if (!r.length && byMatch) r = await catalog(q, { max: 25, anyLang: true });
-  searchState.loading = false; searchState.results = r;
-  if (navigator.onLine === false && !r.length) searchState.err = 'Nu există conexiune la internet.';
-  renderPart('#sres', searchResultsHTML());
-  if (r.length) {
-    say(`${plural(r.length, 'rezultat', 'rezultate')} pentru ${q}.${auto ? ' Primul rezultat: ' + r[0].title + (r[0].author ? ', de ' + r[0].author : '') + '. Butonul Adaugă este următorul.' : ''}`);
+  const first = books[0];
+  const authTxt = authors.length ? ` Autor găsit: ${authors[0].name}.` : '';
+  if (books.length) {
+    say(`${plural(books.length, 'carte găsită', 'cărți găsite')}.${authTxt} Prima: ${first.title}${first.author ? ', de ' + first.author : ''}.${auto ? ' Butonul Adaugă este următorul.' : ''}`);
     if (auto) setTimeout(() => $('#sres [data-quickadd]')?.focus(), 300);
-  } else say('Nicio carte găsită.');
+  } else say(authors.length ? authTxt.trim() : 'Nicio carte găsită.');
 }
+function rangeLive(t) {
+  const out = t.parentElement.querySelector('output'); const v = +t.value; let txt = '';
+  if (t.dataset.rater !== undefined) { txt = rateTxt(v); const st = $('#rateStars'); if (st) st.textContent = starsTxt(v) || '☆☆☆☆☆'; }
+  else if (t.dataset.pctr !== undefined) { const b = byId($('#sheets [data-edit]')?.dataset.edit); if (b) txt = pctText(b, v); }
+  else if (t.dataset.goalr !== undefined) txt = goalText(v);
+  else if (t.dataset.pctedit !== undefined) { const n = +($('#e-pages')?.value || 0); const pg = Math.round(v / 100 * n); const h = $('#e-page'); if (h) h.value = pg; txt = n ? `${v} la sută, pagina ${pg} din ${n}` : `${v} la sută`; }
+  else if (t.dataset.link) { const other = document.getElementById(t.dataset.link); if (t.type === 'range') { if (other) other.value = v || ''; txt = plural(v, 'pagină', 'pagini'); } else { if (other) { if (v > +other.max) other.max = v; other.value = v; rangeLive(other); } return; } const pr = $('#e-pageR'); if (pr) rangeLive(pr); }
+  if (out) out.textContent = txt; t.setAttribute('aria-valuetext', txt);
+}
+function rangeCommit(t) {
+  const v = +t.value;
+  if (t.dataset.rater !== undefined) { const b = byId($('#sheets [data-edit]')?.dataset.edit); if (b) { b.rating = v; persist(); render(); } return; }
+  if (t.dataset.pctr !== undefined) { const b = byId($('#sheets [data-edit]')?.dataset.edit); if (b && b.pages) { setPage(b, Math.round(v / 100 * b.pages)); render(); } return; }
+  if (t.dataset.goalr !== undefined) { S.settings.goal = Math.max(1, v); persist(); const id = t.id; render(); setTimeout(() => document.getElementById(id)?.focus(), 30); return; }
+}
+document.addEventListener('input', e => {
+  if (e.target.type === 'range' || e.target.dataset.link) { rangeLive(e.target); return; }
+  if (e.target.id !== 'q') return;
+  clearTimeout(liveT);
+  const v = e.target.value.trim();
+  if (v.length < 3) { if (!v) { searchSeq++; searchState = { q: '', results: null, loading: false, err: '', autoAdd: false }; renderPart('#sres', searchResultsHTML()); } return; }
+  liveT = setTimeout(() => runSearch(v, true), 700);         // caută singur după ce te oprești din scris
+});
 function renderPart(sel, html) { const el = $(sel); if (el) el.innerHTML = html; }
 
 screens.more = () => {
@@ -367,7 +493,7 @@ screens.more = () => {
   const name = S.profile.name || 'Cititor';
   h += `<div class="group"><button class="cell" data-push="profile" aria-label="Profil: ${esc(name)}. Editează profilul" style="min-height:72px"><span class="ico" style="width:48px;height:48px;border-radius:50%;background:${color(name)};font:600 20px var(--display)" aria-hidden="true">${esc(name[0].toUpperCase())}</span><span class="grow"><b>${esc(name)}</b><div class="val" style="font-size:14px">${plural(S.books.filter(b => b.status === 'read').length, 'carte citită', 'cărți citite')}</div></span><span class="chev" aria-hidden="true">${icon('chev')}</span></button></div>`;
   h += `<div class="label">Contul tău</div><div class="group">${cell({ attrs: 'data-push="profile"', ico: 'person', icoColor: '#2B7BE4', label: 'Editează profilul' })}${cell({ attrs: 'data-push="account"', ico: 'key', icoColor: '#8E8E93', label: 'Editează contul' })}</div>`;
-  h += `<div class="label">Date</div><div class="group">${cell({ attrs: 'data-push="import"', ico: 'down', icoColor: '#1E8E4E', label: 'Importă din altă aplicație', aria: 'Importă din altă aplicație, de exemplu Goodreads' })}${cell({ attrs: 'data-push="backup"', ico: 'up', icoColor: '#E08A00', label: 'Copie de siguranță' })}${cell({ attrs: 'data-push="history"', ico: 'clock', icoColor: '#8E5CD9', label: 'Istoricul lecturii' })}</div>`;
+  h += `<div class="label">Date</div><div class="group">${cell({ attrs: 'data-push="import"', ico: 'down', icoColor: '#1E8E4E', label: 'Importă din altă aplicație', aria: 'Importă din Goodreads sau StoryGraph' })}${cell({ attrs: 'data-push="backup"', ico: 'up', icoColor: '#E08A00', label: 'Copie de siguranță' })}${cell({ attrs: 'data-push="history"', ico: 'clock', icoColor: '#8E5CD9', label: 'Istoricul lecturii' })}</div>`;
   h += `<div class="label">Aplicație</div><div class="group">${cell({ attrs: 'data-push="settings"', ico: 'gear', icoColor: '#636366', label: 'Setări' })}${cell({ attrs: 'data-push="install"', ico: 'info', icoColor: '#2448B8', label: 'Instalează pe ecranul principal' })}${cell({ attrs: 'data-push="about"', ico: 'book', icoColor: '#B0413E', label: 'Despre Raftul Meu' })}</div>`;
   return h;
 };
@@ -390,9 +516,9 @@ pages.account = () => `${navHTML('Cont', { back: backLabel() })}
   <div class="label">Zona periculoasă</div><div class="group">${cell({ attrs: 'data-askwipe', ico: 'trash', icoColor: '#D23B33', label: 'Șterge toate datele', chev: false })}</div><div id="wipeBox"></div>`;
 pages.settings = () => `${navHTML('Setări', { back: backLabel() })}
   <div class="group"><fieldset class="field"><legend>Aspect</legend><div class="seg">${[['auto', 'Automat'], ['light', 'Luminos'], ['dark', 'Întunecat']].map(([k, v]) => `<label>${v}<input type="radio" name="theme" value="${k}" ${S.settings.theme === k ? 'checked' : ''}></label>`).join('')}</div></fieldset></div>
-  <div class="label">Catalog</div><div class="group"><label class="cell" style="cursor:pointer"><span class="grow">Doar cărți în limba română</span><span class="toggle"><input type="checkbox" id="onlyRo" ${S.settings.onlyRo ? 'checked' : ''}><span></span></span></label></div>
-  <div class="foot">Când e pornit, căutarea și recomandările arată mai întâi cărți în limba română.</div>
-  <div class="label">Obiectiv anual</div><div class="group"><div class="field"><div class="stepper"><button data-goal="-1" aria-label="Scade obiectivul">−</button><output aria-live="polite">${plural(S.settings.goal, 'carte', 'cărți')}</output><button data-goal="1" aria-label="Crește obiectivul">+</button></div></div></div>`;
+  <div class="label">Catalog</div><div class="group"><label class="cell" style="cursor:pointer"><span class="grow">Cărțile în română primele</span><span class="toggle"><input type="checkbox" id="onlyRo" ${S.settings.onlyRo ? 'checked' : ''}><span></span></span></label></div>
+  <div class="foot">Căutarea găsește cărți din orice țară și în orice limbă. Când e pornit, cele în limba română apar primele.</div>
+  <div class="label">Obiectiv anual</div><div class="group">${slider({ id: 'goalR', label: 'Obiectiv anual', min: 1, max: Math.max(200, S.settings.goal), value: S.settings.goal, text: goalText(S.settings.goal), extra: 'data-goalr' })}</div>`;
 pages.import = () => `${navHTML('Importă', { back: backLabel() })}
   <div class="desc">Poți aduce biblioteca din Goodreads sau din StoryGraph. Pe site-ul Goodreads, intră la My Books, apoi Import and export, și apasă Export Library. Primești un fișier CSV. Salvează-l pe telefon, apoi alege-l aici.</div>
   <div class="btns"><label class="btn primary" style="text-align:center;cursor:pointer" for="csvFile">Alege fișierul exportat</label><input id="csvFile" type="file" accept=".csv,text/csv" class="sr"></div>
@@ -416,9 +542,9 @@ pages.install = () => `${navHTML('Instalează', { back: backLabel() })}
 În Chrome: apasă butonul Partajare din dreapta barei de adrese, apoi „Adaugă pe ecranul principal”.
 
 Aplicația trebuie deschisă din adresa ei de internet. Dacă o deschizi ca fișier, din WhatsApp sau din aplicația Fișiere, iPhone-ul o arată doar ca previzualizare și butoanele nu funcționează.</div>`;
-pages.about = () => `${navHTML('Despre', { back: backLabel() })}<div class="desc">Raftul Meu, versiunea 0.2.
+pages.about = () => `${navHTML('Despre', { back: backLabel() })}<div class="desc">Raftul Meu, versiunea 0.3.
 
-O aplicație de lectură în limba română, gândită pentru VoiceOver. Datele cărților vin din Google Books și Open Library. Biblioteca ta rămâne pe telefonul tău.</div>`;
+O aplicație de lectură în limba română, gândită pentru VoiceOver. Datele cărților vin din Google Books, Voxa și Open Library, din orice țară și în orice limbă. Biblioteca ta rămâne pe telefonul tău.</div>`;
 pages.list = id => {
   const l = listById(id); if (!l) return navHTML('Listă', { back: backLabel() }) + emptyHTML('Lista nu mai există', '');
   const items = S.books.filter(b => (b.lists || []).includes(id));
@@ -445,7 +571,11 @@ function render(focusTitle) {
   if (focusTitle) { window.scrollTo(0, 0); setTimeout(() => $('#title')?.focus(), 30); }
 }
 async function loadAuthor(a) {
-  const r = await catalog(`inauthor:"${a}"`, { max: 30 }).catch(() => []);
+  let r = await catalog(`inauthor:"${a}"`, { max: 30 }).catch(() => []);
+  const an = norm(a).split(' ').pop();
+  const vx = (await voxaSearch(a)).filter(c => norm(c.author).includes(an));
+  const seen = new Set(r.map(c => norm(c.title)));
+  r = [...vx.filter(c => !seen.has(norm(c.title))), ...r];
   renderPart('#authBox', r.length ? `<div class="group" role="list">${r.map(c => `<div role="listitem">${candRowHTML(c)}</div>`).join('')}</div>` : emptyHTML('Nimic găsit', 'Verifică legătura la internet.'));
 }
 function goTab(t) {
@@ -468,14 +598,21 @@ function closeSheet(noRestore) {
 }
 function refreshSheet(html) { const i = $('#sheets .in'); if (i) i.innerHTML = '<div class="grab" aria-hidden="true"></div>' + html; }
 
+function pctText(b, p) { const pg = Math.round(p / 100 * (b.pages || 0)); return `${p} la sută, ${b.format === 'audio' ? 'capitolul' : 'pagina'} ${pg} din ${b.pages}`; }
+function setPage(b, page) {
+  const old = b.page || 0; b.page = Math.max(0, Math.min(b.pages, page)); const diff = b.page - old;
+  if (diff > 0) { S.sessions.push({ id: uid(), bookId: b.id, date: today(), pages: diff, minutes: 0 }); if (b.status === 'want') setStatus(b, 'reading'); }
+  else if (diff < 0) { for (let i = S.sessions.length - 1, left = -diff; i >= 0 && left > 0; i--) { const s = S.sessions[i]; if (s.bookId === b.id && s.date === today() && s.pages && !s.minutes) { const k = Math.min(left, s.pages); s.pages -= k; left -= k; } } S.sessions = S.sessions.filter(s => s.pages || s.minutes); }
+  b.lastTouch = Date.now(); persist();
+}
 function bookSheet(b) {
   const unit = b.format === 'audio' ? 'Capitolul' : 'Pagina';
-  const prog = b.pages ? `<div class="label">Progres</div><div class="group"><div class="field"><div style="font-weight:600">${pct(b)}% · ${unit.toLowerCase()} ${b.page || 0} din ${b.pages}</div><div class="bar"><i style="width:${pct(b)}%"></i></div></div><div class="field"><div class="stepper"><button data-pg="-10" aria-label="Înapoi 10 pagini">−10</button><button data-pg="-1" aria-label="Înapoi o pagină">−1</button><output id="pgOut" aria-live="polite">${unit} ${b.page || 0}</output><button data-pg="1" aria-label="Înainte o pagină">+1</button><button data-pg="10" aria-label="Înainte 10 pagini">+10</button></div></div></div>` : '';
+  const prog = b.pages ? `<div class="label">Progres</div><div class="group"><div class="field"><div style="font-weight:600">${pct(b)}% · ${unit.toLowerCase()} ${b.page || 0} din ${b.pages}</div><div class="bar"><i style="width:${pct(b)}%"></i></div></div>${slider({ id: 'pctR', label: 'Cât ai citit', min: 0, max: 100, value: pct(b), text: pctText(b, pct(b)), extra: 'data-pctr' })}</div>` : '';
   const listsOf = (b.lists || []).map(id => listById(id)?.name).filter(Boolean);
   return `<div class="shead"><button data-close>Gata</button><h2 class="sr">Detalii carte</h2><button class="strong" data-edit="${esc(b.id)}">Editează</button></div>
   <div class="dtop">${coverHTML(b, 'mini')}<div style="min-width:0"><h3 tabindex="-1">${esc(b.title)}</h3><div style="color:var(--muted)">${esc(b.author)}</div><div style="font-size:14px;color:var(--muted);margin-top:6px">${[b.year, b.pages ? b.pages + ' pagini' : '', FORMATS[b.format]].filter(Boolean).join(' · ')}</div>${b.avg ? `<div style="font-size:14px;margin-top:4px"><span class="stars">★</span> ${String(b.avg).replace('.', ',')} <span style="color:var(--muted)">${b.ratings ? `(${b.ratings} cititori)` : ''}</span></div>` : ''}</div></div>
   <div class="group"><fieldset class="field"><legend>Raft</legend><div class="seg">${Object.entries(STATUS).map(([k, v]) => `<label>${v.replace('Vreau să citesc', 'De citit').replace('Citesc acum', 'Citesc')}<input type="radio" name="bstatus" value="${k}" ${b.status === k ? 'checked' : ''} aria-label="${v}"></label>`).join('')}</div></fieldset>
-  <fieldset class="field"><legend>Nota ta</legend><div class="rate">${[1, 2, 3, 4, 5].map(n => `<label class="${n <= b.rating ? 'on' : ''}"><span aria-hidden="true">★</span><input type="radio" name="brate" value="${n}" ${b.rating === n ? 'checked' : ''} aria-label="${n} ${n === 1 ? 'stea' : 'stele'}"></label>`).join('')}</div></fieldset></div>
+  ${slider({ id: 'rateR', label: 'Nota ta', min: 0, max: 5, step: 0.5, value: b.rating || 0, text: rateTxt(b.rating || 0), extra: 'data-rater' })}<div class="field stars big" id="rateStars" aria-hidden="true">${starsTxt(b.rating || 0) || '☆☆☆☆☆'}</div></div>
   ${b.status === 'reading' || b.status === 'want' ? prog : ''}
   <div class="btns">${b.status !== 'read' ? `<button class="btn primary" data-session="${esc(b.id)}">Notează o sesiune de lectură</button>` : ''}${b.status === 'reading' ? `<button class="btn plain" data-finish="${esc(b.id)}">Am terminat-o</button>` : ''}</div>
   <div class="label">Liste</div><div class="group">${cell({ attrs: `data-picklists="${esc(b.id)}"`, ico: 'folder', icoColor: '#2B7BE4', label: listsOf.length ? listsOf.join(', ') : 'Adaugă într-o listă', aria: listsOf.length ? `În listele: ${listsOf.join(', ')}. Modifică` : 'Adaugă într-o listă' })}</div>
@@ -501,12 +638,14 @@ function editSheet(b) {
   b = Object.assign({ title: '', author: '', pages: 0, page: 0, format: 'print', status: 'want', review: '', dateFinished: '' }, b);
   return `<form id="editForm" data-id="${esc(b.id || '')}"><div class="shead"><button type="button" data-close>Renunță</button><h2 tabindex="-1">${isNew ? 'Carte nouă' : 'Editează'}</h2><button type="submit" class="strong">Salvează</button></div>
   <div class="group">
-   <div class="field"><label for="e-title">Titlu</label><input id="e-title" name="title" value="${esc(b.title)}" ${isNew ? 'autofocus' : ''}></div>
-   <div class="field"><label for="e-author">Autor</label><input id="e-author" name="author" value="${esc(b.author)}"></div>
+   <div class="field"><label for="e-title">Titlul cărții</label><input id="e-title" name="title" value="${esc(b.title)}" ${isNew ? 'autofocus' : ''}></div>
+   <div class="field"><label for="e-author">Autorul</label><input id="e-author" name="author" value="${esc(b.author)}"></div>
    <fieldset class="field"><legend>Format</legend><div class="seg">${Object.entries(FORMATS).map(([k, v]) => `<label>${v}<input type="radio" name="format" value="${k}" ${b.format === k ? 'checked' : ''}></label>`).join('')}</div></fieldset>
    ${isNew ? `<fieldset class="field"><legend>Raft</legend><div class="seg">${Object.entries(STATUS).map(([k, v]) => `<label>${v.replace('Vreau să citesc', 'De citit').replace('Citesc acum', 'Citesc')}<input type="radio" name="status" value="${k}" ${b.status === k ? 'checked' : ''} aria-label="${v}"></label>`).join('')}</div></fieldset>` : ''}
-   <div class="field"><label for="e-pages">Număr de pagini (sau capitole, la audiobook)</label><input id="e-pages" name="pages" type="number" inputmode="numeric" min="0" value="${b.pages || ''}"></div>
-   <div class="field"><label for="e-page">Pagina la care ai ajuns</label><input id="e-page" name="page" type="number" inputmode="numeric" min="0" value="${b.page || ''}"></div>
+   ${slider({ id: 'e-pagesR', label: 'Număr de pagini (sau capitole, la audiobook)', min: 0, max: Math.max(2000, b.pages || 0), step: 5, value: b.pages || 0, text: plural(b.pages || 0, 'pagină', 'pagini'), extra: 'data-link="e-pages"' })}
+   <div class="field"><label for="e-pages">Număr exact de pagini</label><input id="e-pages" name="pages" type="number" inputmode="numeric" min="0" value="${b.pages || ''}" data-link="e-pagesR"></div>
+   ${slider({ id: 'e-pageR', label: 'Cât ai citit', min: 0, max: 100, value: b.pages ? Math.round((b.page || 0) / b.pages * 100) : 0, text: `${b.pages ? Math.round((b.page || 0) / b.pages * 100) : 0} la sută`, extra: 'data-pctedit' })}
+   <input type="hidden" id="e-page" name="page" value="${b.page || 0}">
    <div class="field"><label for="e-fin">Data terminării</label><input id="e-fin" name="dateFinished" type="date" value="${esc(b.dateFinished || '')}"></div>
    <div class="field"><label for="e-rev">Recenzia sau notițele tale</label><textarea id="e-rev" name="review">${esc(b.review)}</textarea></div>
   </div><p class="foot" id="editErr" role="alert"></p></form>`;
@@ -525,7 +664,7 @@ function pickListsSheet(b) {
 }
 function listNameSheet(l) {
   return `<form id="listForm" data-id="${esc(l ? l.id : '')}"><div class="shead"><button type="button" data-close>Renunță</button><h2 tabindex="-1">${l ? 'Redenumește lista' : 'Listă nouă'}</h2><button type="submit" class="strong">Salvează</button></div>
-  <div class="group"><div class="field"><label for="l-name">Numele listei</label><input id="l-name" name="name" value="${esc(l ? l.name : '')}" placeholder="De exemplu: 2024, Preferatele mele" autofocus></div></div><p class="foot" id="listErr" role="alert"></p></form>
+  <div class="group"><div class="field"><label for="l-name">Numele listei</label><input id="l-name" name="name" value="${esc(l ? l.name : '')}" autofocus></div></div><p class="foot" id="listErr" role="alert"></p></form>
   ${l ? `<div class="btns"><button class="btn danger" data-dellist="${esc(l.id)}">Șterge lista</button></div><p class="foot">Ștergerea listei nu șterge cărțile din bibliotecă.</p>` : ''}`;
 }
 function addToListSheet(id) {
@@ -566,7 +705,7 @@ function importCSV(text) {
     if (ex && !shelfMap(ex)) shelves.push(ex);
     const fmt = /audio/i.test(g(r, c.format)) ? 'audio' : /kindle|ebook|e-book/i.test(g(r, c.format)) ? 'ebook' : 'print';
     const b = { id: uid(), ext: '', ...cand, page: st === 'read' ? cand.pages : 0, description: '', cover: cand.isbn ? `https://covers.openlibrary.org/b/isbn/${cand.isbn}-M.jpg?default=false` : '', categories: [], avg: 0, ratings: 0,
-      format: fmt, status: st, rating: Math.round(+g(r, c.rating) || 0), review: g(r, c.review).replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ''), lists: [],
+      format: fmt, status: st, rating: Math.round((+g(r, c.rating) || 0) * 2) / 2, review: g(r, c.review).replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ''), lists: [],
       dateAdded: date(g(r, c.dateAdded)) || today(), dateStarted: date(g(r, c.started)), dateFinished: st === 'read' ? (date(g(r, c.dateRead)) || '') : '', minutes: 0 };
     for (const sh of shelves) { if (shelfMap(sh)) continue; let l = S.lists.find(x => norm(x.name) === norm(sh)); if (!l) { l = { id: uid(), name: sh }; S.lists.push(l); listsMade++; } b.lists.push(l.id); }
     S.books.push(b); added++;
@@ -616,17 +755,18 @@ let sheetBook = null;
 document.addEventListener('change', e => {
   const t = e.target;
   if (t.name === 'bstatus') { const b = byId($('#sheets [data-edit]')?.dataset.edit); if (b) { setStatus(b, t.value); b.lastTouch = Date.now(); persist(); say(`Mutată la ${STATUS[t.value]}.`); refreshSheet(bookSheet(b)); $(`#sheets input[name=bstatus][value=${t.value}]`)?.focus(); render(); } return; }
+  if (t.dataset.rater !== undefined || t.dataset.pctr !== undefined || t.dataset.goalr !== undefined) { rangeCommit(t); return; }
   if (t.name === 'brate') { const b = byId($('#sheets [data-edit]')?.dataset.edit); if (b) { b.rating = +t.value; persist(); $$('#sheets .rate label').forEach((l, i) => l.classList.toggle('on', i < b.rating)); say(`Nota ta: ${b.rating} ${b.rating === 1 ? 'stea' : 'stele'}`); render(); } return; }
   if (t.dataset.togglelist) { const b = byId(t.dataset.bk); if (!b) return; b.lists = b.lists || []; if (t.checked) { if (!b.lists.includes(t.dataset.togglelist)) b.lists.push(t.dataset.togglelist); } else b.lists = b.lists.filter(x => x !== t.dataset.togglelist); persist(); say(t.checked ? 'Adăugată în listă' : 'Scoasă din listă'); render(); return; }
   if (t.name === 'theme') { S.settings.theme = t.value; persist(); applyTheme(); return; }
-  if (t.id === 'onlyRo') { S.settings.onlyRo = t.checked; persist(); for (const k in cache) delete cache[k]; say(t.checked ? 'Doar cărți în română, pornit' : 'Doar cărți în română, oprit'); return; }
+  if (t.id === 'onlyRo') { S.settings.onlyRo = t.checked; persist(); for (const k in cache) delete cache[k]; say(t.checked ? 'Cărțile în română primele, pornit' : 'Cărțile în română primele, oprit'); return; }
   if (t.id === 'csvFile' && t.files[0]) { const fr = new FileReader(); fr.onload = () => { try { const r = importCSV(String(fr.result)); renderPart('#importOut', `<div class="desc" style="margin-top:14px">Gata! Am importat ${plural(r.added, 'carte', 'cărți')}${r.listsMade ? ` și am creat ${plural(r.listsMade, 'listă', 'liste')}` : ''}.${r.skipped ? ` ${plural(r.skipped, 'carte era', 'cărți erau')} deja în bibliotecă.` : ''}</div>`); say(`Am importat ${plural(r.added, 'carte', 'cărți')}.`); } catch (err) { renderPart('#importOut', `<div class="desc" style="margin-top:14px">${esc(err.message)}</div>`); say(err.message); } }; fr.readAsText(t.files[0]); return; }
   if (t.id === 'jsonFile' && t.files[0]) { const fr = new FileReader(); fr.onload = () => { try { const d = JSON.parse(String(fr.result)); if (!d.books) throw 0; S = Object.assign(blank(), d); persist(); renderPart('#backupOut', `<div class="desc" style="margin-top:14px">Am restaurat ${plural(S.books.length, 'carte', 'cărți')}.</div>`); say('Biblioteca a fost restaurată.'); } catch (err) { renderPart('#backupOut', '<div class="desc" style="margin-top:14px">Fișierul nu este o copie de siguranță Raftul Meu.</div>'); } }; fr.readAsText(t.files[0]); return; }
 });
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 document.addEventListener('submit', e => {
   e.preventDefault(); const f = e.target, fd = new FormData(f);
-  if (f.id === 'searchForm') { const q = $('#q').value; $('#q').blur(); runSearch(q); return; }
+  if (f.id === 'searchForm') { clearTimeout(liveT); const q = $('#q').value; $('#q').blur(); runSearch(q); return; }
   if (f.id === 'editForm') {
     const title = String(fd.get('title') || '').trim(); if (!title) { $('#editErr').textContent = 'Scrie titlul cărții.'; $('#e-title').focus(); return; }
     const id = f.dataset.id; let b = id ? byId(id) : null;

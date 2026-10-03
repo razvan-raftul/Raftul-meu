@@ -141,6 +141,10 @@ fieldset.field{border:0;margin:0;min-width:0}
 .seg label{position:relative;text-align:center;font-size:13.5px;padding:7px 2px;border-radius:7px;cursor:pointer;color:var(--fg)}
 .seg input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer}
 .seg label:has(input:checked){background:var(--card);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.range{display:flex;align-items:center;gap:12px;margin-top:6px}
+.range input[type=range]{flex:1;min-width:0;height:44px;accent-color:var(--accent);margin:0}
+.range output{min-width:92px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+.stars.big{font-size:30px;letter-spacing:2px;color:var(--star);padding-top:0}
 .rate{display:flex;gap:4px}
 .rate label{position:relative;font-size:32px;line-height:1;color:var(--line);cursor:pointer;padding:2px}
 .rate label.on{color:var(--star)}
