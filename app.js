@@ -71,7 +71,15 @@ const starsTxt = n => { if (!n) return ''; const f = Math.floor(n), h = n - f >=
 const rateTxt = n => n ? t(n === 1 ? 'stars_1' : 'stars_n', { n: numTxt(n) }) : t('noRating');
 const slider = ({ id, name = '', label, min, max, step = 1, value, text, extra = '' }) => `<div class="field"><label for="${id}">${esc(label)}</label><div class="range"><input type="range" id="${id}" ${name ? `name="${name}"` : ''} min="${min}" max="${max}" step="${step}" value="${value}" aria-valuetext="${esc(text)}" ${extra}><output for="${id}" aria-hidden="true">${esc(text)}</output></div></div>`;
 const goalText = g => t('perYear', { x: tn(g, 'book') });
-const pct = b => b.pages ? Math.min(100, Math.round((b.page || 0) / b.pages * 100)) : 0;
+const pct = b => {
+  if (b.format === 'audio' && b.pct != null) return b.pct;
+  if (b.pages) return Math.min(100, Math.round((b.page || 0) / b.pages * 100));
+  if (b.pct != null) return b.pct;
+  return b.chapters ? Math.min(100, Math.round((b.chapter || 0) / b.chapters * 100)) : 0;
+};
+const hasProg = b => !!(b.pages || b.pct != null || b.chapters);
+/* spoken/visible detail next to the percent: page or chapter position, if known */
+const progPos = b => b.format === 'audio' ? (b.pages ? t('chapterOf', { p: b.page || 0, n: b.pages }) : '') : (b.pages ? t('pageOf', { p: b.page || 0, n: b.pages }) : (b.chapters ? t('chapterShort', { p: b.chapter || 0, n: b.chapters }) : ''));
 const icon = name => ICONS[name] || '';
 const bookGenre = b => b.genre ? genreName(b.genre) : ((b.categories || [])[0] || '');
 function say(msg) { const l = $('#live'); l.textContent = ''; setTimeout(() => { l.textContent = msg; }, 80); }
@@ -262,11 +270,11 @@ function tileHTML(c, kind) {
 const candStore = {}; function remember(c) { const k = c.ext || ('c' + uid()); candStore[k] = c; return k; }
 function bookRowHTML(b) {
   let sub = '', label = `${b.title}${byAuthor(b.author)}`;
-  if (b.status === 'reading') { sub = b.pages ? `<span>${pct(b)}% · ${t('pageOf', { p: b.page || 0, n: b.pages })}</span>` : `<span>${FORMAT(b.format)}</span>`; if (b.pages) label += '. ' + t('pctRead', { p: pct(b) }); }
+  if (b.status === 'reading') { sub = hasProg(b) ? `<span>${[pct(b) + '%', progPos(b)].filter(Boolean).join(' · ')}</span>` : `<span>${FORMAT(b.format)}</span>`; if (hasProg(b)) label += '. ' + t(b.format === 'audio' ? 'listenedPct' : 'pctRead', { p: pct(b) }); }
   else if (b.status === 'read') { sub = `${b.rating ? `<span class="stars">${starsTxt(b.rating)}</span>` : ''}${b.dateFinished ? `<span>${fmtDate(b.dateFinished)}</span>` : ''}`; if (b.rating) label += '. ' + t('yourRating', { r: rateTxt(b.rating) }); if (b.dateFinished) label += '. ' + t('finishedOn', { d: fmtDate(b.dateFinished) }); }
-  else if (b.status === 'dnf') { sub = `<span>${b.pages ? t('stoppedAt', { p: pct(b) }) : t('stopped')}</span>`; label += '. ' + STATUS('dnf'); }
+  else if (b.status === 'dnf') { sub = `<span>${hasProg(b) ? t('stoppedAt', { p: pct(b) }) : t('stopped')}</span>`; label += '. ' + STATUS('dnf'); }
   else { sub = `<span class="pill">${FORMAT(b.format)}</span>`; }
-  const bar = b.status === 'reading' && b.pages ? `<div class="bar"><i style="width:${pct(b)}%"></i></div>` : '';
+  const bar = b.status === 'reading' && hasProg(b) ? `<div class="bar"><i style="width:${pct(b)}%"></i></div>` : '';
   return `<button class="row" data-book="${esc(b.id)}" aria-label="${esc(label)}" ${adjAttrs()}>${coverHTML(b, 'mini')}<span class="meta" aria-hidden="true"><span class="t">${esc(b.title)}</span><span class="a">${esc(b.author)}</span><span class="s">${sub}</span>${bar}</span><span class="chev" aria-hidden="true">${icon('chev')}</span></button>`;
 }
 function candRowHTML(c) {
@@ -299,7 +307,7 @@ screens.home = () => {
   let h = navHTML(t('tab_home'), { act: `<button class="round" data-go="search" aria-label="${esc(t('searchBook'))}">${icon('search')}</button>` });
   if (reading.length) {
     const b = reading.sort((a, c) => (c.lastTouch || 0) - (a.lastTouch || 0))[0];
-    h += `<div class="hero">${coverHTML(b, 'mini')}<div style="min-width:0;flex:1"><div class="s">${esc(t('continueReading'))}</div><div class="t">${esc(b.title)}</div>${b.pages ? `<div class="s">${esc(t('pctReadShort', { p: pct(b) }))}</div><div class="bar"><i style="width:${pct(b)}%"></i></div>` : ''}</div><button class="go" data-book="${esc(b.id)}" aria-label="${esc(t('continueReading') + ': ' + b.title + (b.pages ? ', ' + t('pctRead', { p: pct(b) }) : ''))}">${esc(t('open'))}</button></div>`;
+    h += `<div class="hero">${coverHTML(b, 'mini')}<div style="min-width:0;flex:1"><div class="s">${esc(t('continueReading'))}</div><div class="t">${esc(b.title)}</div>${hasProg(b) ? `<div class="s">${esc(t('pctReadShort', { p: pct(b) }))}</div><div class="bar"><i style="width:${pct(b)}%"></i></div>` : ''}</div><button class="go" data-book="${esc(b.id)}" aria-label="${esc(t('continueReading') + ': ' + b.title + (hasProg(b) ? ', ' + t(b.format === 'audio' ? 'listenedPct' : 'pctRead', { p: pct(b) }) : ''))}">${esc(t('open'))}</button></div>`;
   } else {
     h += `<div class="hero"><div style="flex:1"><div class="t">${esc(t('welcome'))}</div><div class="s">${esc(t('welcomeSub'))}</div></div><button class="go" data-go="search">${esc(t('tab_search'))}</button></div>`;
   }
@@ -519,10 +527,11 @@ function rangeLive(el) {
 function rangeCommit(el) {
   const v = +el.value;
   if (el.dataset.rater !== undefined) { const b = byId(el.dataset.rater || $('#sheets [data-edit]')?.dataset.edit); if (b) { b.rating = v; persist(); render(); } return; }
-  if (el.dataset.pctr !== undefined) { const b = byId($('#sheets [data-edit]')?.dataset.edit); if (b && b.pages) { setPage(b, Math.round(v / 100 * b.pages)); render(); } return; }
+  if (el.dataset.pctr !== undefined) { const b = byId($('#sheets [data-edit]')?.dataset.edit); if (!b) return; if (b.format !== 'audio' && b.pages) setPage(b, Math.round(v / 100 * b.pages)); else { b.pct = v; if (v > 0 && b.status === 'want') setStatus(b, 'reading'); b.lastTouch = Date.now(); persist(); } render(); return; }
   if (el.dataset.goalr !== undefined) { S.settings.goal = Math.max(1, v); persist(); const id = el.id; render(); setTimeout(() => document.getElementById(id)?.focus(), 30); return; }
 }
 document.addEventListener('input', e => {
+  if (e.target.dataset.prog !== undefined) { progLive(e.target); return; }
   if (e.target.type === 'range' || e.target.dataset.link) { rangeLive(e.target); return; }
   if (e.target.id !== 'q') return;
   clearTimeout(liveT);
@@ -605,7 +614,7 @@ pages.history = () => {
   return `${navHTML(t('historyTitle'), { back: backLabel() })}${ev.length ? `<div class="group hist">${ev.map(e => `<div class="cell" style="cursor:default;flex-direction:column;align-items:flex-start;gap:2px"><span>${esc(txt(e) + detail(e))} „${esc(e.title)}”</span><span class="d">${fmtDate(e.date)}</span></div>`).join('')}</div>` : emptyHTML(t('noActivity'), t('noActivityHint'))}`;
 };
 pages.install = () => `${navHTML(t('install'), { back: backLabel() })}<div class="desc">${esc(t('installDesc'))}</div>`;
-pages.about = () => `${navHTML(t('about'), { back: backLabel() })}<div class="desc">${esc(t('aboutDesc', { v: '0.4.4' }))}</div>`;
+pages.about = () => `${navHTML(t('about'), { back: backLabel() })}<div class="desc">${esc(t('aboutDesc', { v: '0.4.5' }))}</div>`;
 pages.list = id => {
   const l = listById(id); if (!l) return navHTML(t('list'), { back: backLabel() }) + emptyHTML(t('listGone'), '');
   const items = sortBooks(S.books.filter(b => (b.lists || []).includes(id)), 'list');
@@ -662,7 +671,7 @@ function closeSheet(noRestore) {
 function refreshSheet(html) { const i = $('#sheets .in'); if (i) i.innerHTML = '<div class="grab" aria-hidden="true"></div>' + html; }
 const sheetHead = (title, right = '<span style="min-width:70px"></span>', focusTitle = true) => `<div class="shead"><button data-close aria-label="${esc(t('back'))}">${icon('back')} ${esc(t('back'))}</button><h2 ${focusTitle ? 'tabindex="-1"' : 'class="sr"'}>${esc(title)}</h2>${right}</div>`;
 
-function pctText(b, p) { const pg = Math.round(p / 100 * (b.pages || 0)); return t(b.format === 'audio' ? 'pctChapterOf' : 'pctPageOf', { p, pg, n: b.pages }); }
+function pctText(b, p) { if (b.format === 'audio' || !b.pages) return t('pctOnly', { p }); const pg = Math.round(p / 100 * b.pages); return t('pctPageOf', { p, pg, n: b.pages }); }
 function setPage(b, page) {
   const old = b.page || 0; b.page = Math.max(0, Math.min(b.pages, page)); const diff = b.page - old;
   if (diff > 0) { S.sessions.push({ id: uid(), bookId: b.id, date: today(), pages: diff, minutes: 0 }); if (b.status === 'want') setStatus(b, 'reading'); }
@@ -671,7 +680,7 @@ function setPage(b, page) {
 }
 const shortStatus = k => t('stShort_' + k);
 function bookSheet(b) {
-  const prog = b.pages ? `<div class="label">${esc(t('progress'))}</div><div class="group"><div class="field"><div style="font-weight:600">${pct(b)}% · ${esc(t(b.format === 'audio' ? 'chapterOf' : 'pageOf', { p: b.page || 0, n: b.pages }))}</div><div class="bar"><i style="width:${pct(b)}%"></i></div></div>${slider({ id: 'pctR', label: t('howMuchRead'), min: 0, max: 100, value: pct(b), text: pctText(b, pct(b)), extra: 'data-pctr' })}</div>` : '';
+  const prog = hasProg(b) ? `<div class="label">${esc(t('progress'))}</div><div class="group"><div class="field"><div style="font-weight:600">${esc([pct(b) + '%', progPos(b)].filter(Boolean).join(' · '))}</div><div class="bar"><i style="width:${pct(b)}%"></i></div></div>${slider({ id: 'pctR', label: t(b.format === 'audio' ? 'howMuchListened' : 'howMuchRead'), min: 0, max: 100, value: pct(b), text: pctText(b, pct(b)), extra: 'data-pctr' })}</div>` : '';
   const listsOf = (b.lists || []).map(id => listById(id)?.name).filter(Boolean);
   return `${sheetHead(t('bookDetails'), `<button class="strong" data-edit="${esc(b.id)}">${esc(t('edit'))}</button>`, false)}
   <div class="dtop">${coverHTML(b, 'mini')}<div style="min-width:0"><h3 tabindex="-1">${esc(b.title)}</h3><div style="color:var(--muted)">${esc(b.author)}</div><div style="font-size:14px;color:var(--muted);margin-top:6px">${[b.year, b.pages ? tn(b.pages, 'page') : '', FORMAT(b.format), bookGenre(b)].filter(Boolean).map(esc).join(' · ')}</div>${b.avg ? `<div style="font-size:14px;margin-top:4px"><span class="stars">★</span> ${numTxt(b.avg)} <span style="color:var(--muted)">${b.ratings ? `(${esc(tn(b.ratings, 'reader'))})` : ''}</span></div>` : ''}</div></div>
@@ -705,7 +714,9 @@ function actionOpts(kind, key) {
   const opts = [];
   if (!lib || lib.status !== 'want') opts.push(['want', t('act_want')]);
   if (!lib || lib.status !== 'read') opts.push(['read', t('act_read')]);
-  opts.push(['rate', t('act_rate')], ['open', t('act_open')]);
+  opts.push(['rate', t('act_rate')]);
+  if (lib) opts.push(['progress', t('act_progress')]);
+  opts.push(['open', t('act_open')]);
   if (item.author) opts.push(['author', t('act_author', { a: item.author.split(',')[0] })]);
   if (lib) opts.push(['lists', t('addToList')]);
   return { b, c, item, opts };
@@ -773,6 +784,34 @@ function sessionSheet(b) {
    <div class="field"><label for="s-min">${esc(t('minutesReadQ'))}</label><input id="s-min" name="minutes" type="number" inputmode="numeric" min="0"></div>
    <div class="field"><label for="s-date">${esc(t('date'))}</label><input id="s-date" name="date" type="date" value="${today()}"></div>
   </div><p class="foot">${esc(t('minutesNote'))}</p></form>`;
+}
+/* Edit progress (from the book options menu). Print/eBook: pages, chapters and percent (linked to pages when the total is known).
+   Audiobook: chapters (stored in page/pages, as everywhere else in the app) and a percent slider with an exact field. */
+function progressSheet(b) {
+  const audio = b.format === 'audio', p = pct(b);
+  const num = (id, name, label, val) => `<div class="field"><label for="${id}">${esc(label)}</label><input id="${id}" name="${name}" type="number" inputmode="numeric" min="0" value="${val || val === 0 ? val : ''}" data-prog></div>`;
+  return `<form id="progForm" data-id="${esc(b.id)}">${sheetHead(t('editProgress'), `<button type="submit" class="strong">${esc(t('save'))}</button>`).replace('data-close', 'type="button" data-close')}
+  <div class="foot" style="margin:0 4px 10px">${esc(b.title + byAuthor(b.author))}</div>
+  <div class="group">
+   ${audio ? '' : num('p-page', 'page', t('pagesReadNow'), b.pages || b.page ? b.page || 0 : '') + num('p-pages', 'pages', t('totalPages'), b.pages || '')}
+   ${audio ? num('p-chap', 'chapter', t('chaptersListenedNow'), b.pages || b.page ? b.page || 0 : '') + num('p-chaps', 'chapters', t('totalChapters'), b.pages || '')
+           : num('p-chap', 'chapter', t('chaptersReadNow'), b.chapters || b.chapter ? b.chapter || 0 : '') + num('p-chaps', 'chapters', t('totalChapters'), b.chapters || '')}
+   ${slider({ id: 'p-pctR', label: t(audio ? 'howMuchListened' : 'howMuchRead'), min: 0, max: 100, value: p, text: t('pctOnly', { p }), extra: 'data-prog' })}
+   <div class="field"><label for="p-pct">${esc(t('exactPct'))}</label><input id="p-pct" name="pct" type="number" inputmode="numeric" min="0" max="100" step="1" value="${p}" data-prog></div>
+  </div><p class="foot" id="progErr" role="alert"></p></form>`;
+}
+function progLive(el) {
+  const f = el.form; if (!f) return; const b = byId(f.dataset.id); if (!b) return;
+  const audio = b.format === 'audio', val = id => { const x = f.querySelector('#' + id); return x && x.value !== '' ? +x.value : null; };
+  const setPct = v => { v = Math.max(0, Math.min(100, Math.round(v))); const r = f.querySelector('#p-pctR'), n = f.querySelector('#p-pct'); if (r) { r.value = v; const tx = t('pctOnly', { p: v }); r.setAttribute('aria-valuetext', tx); const o = r.parentElement.querySelector('output'); if (o) o.textContent = tx; } if (n && el !== n) n.value = v; };
+  if (el.id === 'p-pctR' || el.id === 'p-pct') {
+    const v = el.id === 'p-pct' ? val('p-pct') : +el.value; if (v == null) return; setPct(v);
+    const n = val('p-pages'); if (!audio && n) { const pg = f.querySelector('#p-page'); if (pg) pg.value = Math.round(Math.max(0, Math.min(100, v)) / 100 * n); }
+    return;
+  }
+  if (audio) return; // for audiobooks the percent is set on its own, chapters don't move it
+  const n = val('p-pages'), pg = val('p-page'), cn = val('p-chaps'), c = val('p-chap');
+  if (n) setPct((pg || 0) / n * 100); else if (cn) setPct((c || 0) / cn * 100);
 }
 function pickListsSheet(b) {
   return `${sheetHead(t('lists'), `<button class="strong" data-newlist>${esc(t('newList'))}</button>`)}
@@ -886,6 +925,7 @@ function doAction(act, bid, ckey) {
     case 'open': if (b) openSheet(bookSheet(b), b.title); else openSheet(candSheet(c), c.title); break;
     case 'author': push('author', (b || c).author.split(',')[0], (b || c).author.split(',')[0]); break;
     case 'lists': if (b) { openSheet(pickListsSheet(b), t('lists')); sheetBook = b.id; } break;
+    case 'progress': if (b) openSheet(progressSheet(b), t('editProgress')); break;
   }
 }
 let sheetBook = null;
@@ -916,6 +956,28 @@ document.addEventListener('submit', e => {
     if (b) { Object.assign(b, vals); b.lastTouch = Date.now(); persist(); closeSheet(true); openSheet(bookSheet(b), b.title); toast(t('changesSaved')); }
     else { b = addBook(vals, fd.get('status') || 'want'); Object.assign(b, vals); libSeg = b.status; persist(); closeSheet(true); toast(t('addedNamed', { title: b.title })); }
     render(); return;
+  }
+  if (f.id === 'progForm') {
+    const b = byId(f.dataset.id); if (!b) return; const audio = b.format === 'audio';
+    const g = k => { const v = fd.get(k); return v === null || String(v).trim() === '' ? null : Math.max(0, Math.round(+v || 0)); };
+    const err = (msg, id) => { $('#progErr').textContent = msg; document.getElementById(id)?.focus(); };
+    let page = g('page'), pages = g('pages'), chap = g('chapter'), chaps = g('chapters'), p = g('pct');
+    if (p != null && p > 100) return err(t('errPct'), 'p-pct');
+    if (audio) {
+      if (chaps && chap > chaps) return err(t('errChapOver'), 'p-chap');
+      if (chaps != null) b.pages = chaps;
+      if (chap != null) { if (b.pages) setPage(b, chap); else b.page = chap; }
+      if (p != null) b.pct = p;
+    } else {
+      if (pages && page > pages) return err(t('errPageOver'), 'p-page');
+      if (chaps && chap > chaps) return err(t('errChapOver'), 'p-chap');
+      if (pages != null) b.pages = pages;
+      if (page != null) { if (b.pages) setPage(b, page); else b.page = page; }
+      if (chaps != null) b.chapters = chaps; if (chap != null) b.chapter = chap;
+      if (b.pages) delete b.pct; else if (p != null) b.pct = p;
+    }
+    if (pct(b) > 0 && b.status === 'want') setStatus(b, 'reading');
+    b.lastTouch = Date.now(); persist(); closeSheet(true); render(); toast(t('progressSaved') + '. ' + t(audio ? 'listenedPct' : 'pctRead', { p: pct(b) })); setTimeout(() => $(`#app [data-book="${CSS.escape(b.id)}"]`)?.focus(), 60); return;
   }
   if (f.id === 'sessionForm') { const b = byId(f.dataset.id); if (!b) return; const p = +fd.get('pages') || 0, m = +fd.get('minutes') || 0; if (!p && !m) { toast(t('writePagesOrMinutes')); return; } logSession(b, p, m, String(fd.get('date') || today())); b.lastTouch = Date.now(); persist(); closeSheet(true); openSheet(bookSheet(b), b.title); toast(t('sessionSaved')); render(); return; }
   if (f.id === 'listForm') { const name = String(fd.get('name') || '').trim(); if (!name) { $('#listErr').textContent = t('writeListName'); return; } const id = f.dataset.id; if (id) { listById(id).name = name; const top = current(); if (top && top.name === 'list') top.title = name; } else S.lists.push({ id: uid(), name }); persist(); closeSheet(true); render(); toast(id ? t('listRenamed') : t('listCreated', { x: name })); if (sheetBook && !id) { const b = byId(sheetBook); if (b) openSheet(pickListsSheet(b), t('lists')); } return; }
