@@ -29,6 +29,9 @@ const blank = () => ({
 });
 let S = blank();
 try { const d = JSON.parse(localStorage.getItem(KEY) || 'null'); if (d) { S = Object.assign(blank(), d); S.settings = Object.assign(blank().settings, d.settings || {}); S.profile = Object.assign(blank().profile, d.profile || {}); S.social = Object.assign(blank().social, d.social || {}); } } catch (e) {}
+/* rereads: every finished reading of a book is kept in b.reads (dates); b.dateFinished is the latest one */
+function migrateReads() { S.books.forEach(b => { if (!Array.isArray(b.reads)) b.reads = (b.status === 'read' && b.dateFinished) ? [b.dateFinished] : []; }); }
+migrateReads();
 function persist() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast(t('saveFail')); } }
 
 let tab = 'home';
@@ -183,16 +186,33 @@ function addBook(c, status) {
     description: c.description || '', isbn: c.isbn || '', cover: c.cover || '', categories: c.categories || [], avg: c.avg || 0, ratings: c.ratings || 0, genre: c.genre || '',
     format: c.format || 'print', status: status || 'want', rating: 0, review: '', lists: [], dateAdded: today(), dateStarted: '', dateFinished: '', minutes: 0 };
   if (b.status === 'reading') b.dateStarted = today();
-  if (b.status === 'read') { b.dateFinished = today(); b.page = b.pages; }
+  b.reads = [];
+  if (b.status === 'read') { b.dateFinished = today(); b.page = b.pages; b.reads = [b.dateFinished]; }
   S.books.push(b); logEvent(b, 'add'); persist(); return b;
 }
 function setStatus(b, st) {
   if (b.status === st) return;
+  const was = b.status;
   b.status = st;
-  if (st === 'reading' && !b.dateStarted) b.dateStarted = today();
-  if (st === 'read') { b.dateFinished = b.dateFinished || today(); if (b.pages) b.page = b.pages; }
-  if (st !== 'read') b.dateFinished = st === 'dnf' ? b.dateFinished : '';
-  logEvent(b, st); persist();
+  b.reads = b.reads || [];
+  if (st === 'reading') { if (b.reads.length && was === 'read') { b.dateStarted = today(); b.page = 0; delete b.pct; b.chapter = 0; } else if (!b.dateStarted) b.dateStarted = today(); }
+  // every time a book becomes read counts as one more reading (rereads count in the challenge and in their month)
+  if (st === 'read') { b.dateFinished = today(); b.reads.push(b.dateFinished); if (b.pages) b.page = b.pages; }
+  if (st !== 'read') b.dateFinished = st === 'dnf' ? b.dateFinished : (b.reads[b.reads.length - 1] || '');
+  logEvent(b, b.reads.length > 1 && st === 'read' ? 'reread' : st); persist();
+}
+/* "I've read it again": one more finished reading today, the book stays read */
+function readAgain(b) {
+  b.reads = b.reads || [];
+  if (b.status !== 'read') { setStatus(b, 'read'); return; }
+  b.dateFinished = today(); b.reads.push(b.dateFinished); if (b.pages) b.page = b.pages;
+  logEvent(b, 'reread'); persist();
+}
+/* all finished readings: [{ b, date, n }] where n is 1 for the first reading, 2 for the first reread... */
+function allReads() {
+  const out = [];
+  S.books.forEach(b => { const r = [...(b.reads || [])].sort(); r.forEach((d, i) => { if (d) out.push({ b, date: d, n: i + 1 }); }); });
+  return out;
 }
 function logEvent(b, type, extra) { S.events.push({ id: uid(), bookId: b.id, title: b.title, type, date: today(), ...extra }); if (S.events.length > 3000) S.events = S.events.slice(-3000); }
 function logSession(b, pages, minutes, date) {
@@ -234,25 +254,24 @@ function statsFor(year) {
   const m = Array.from({ length: 12 }, () => ({ books: 0, pages: 0, minutes: 0 }));
   const sessByBook = {};
   S.sessions.forEach(s => { const d = new Date(s.date + 'T12:00:00'); sessByBook[s.bookId] = true; if (d.getFullYear() === year) { m[d.getMonth()].pages += s.pages; m[d.getMonth()].minutes += s.minutes; } });
-  S.books.forEach(b => {
-    if (b.status === 'read' && b.dateFinished) {
-      const d = new Date(b.dateFinished + 'T12:00:00');
-      if (d.getFullYear() === year) {
-        m[d.getMonth()].books++;
-        if (!sessByBook[b.id]) { if (b.format !== 'audio') m[d.getMonth()].pages += b.pages || 0; m[d.getMonth()].minutes += b.minutes || 0; }
-      }
+  allReads().forEach(({ b, date }) => {
+    const d = new Date(date + 'T12:00:00');
+    if (d.getFullYear() === year) {
+      m[d.getMonth()].books++;
+      if (!sessByBook[b.id]) { if (b.format !== 'audio') m[d.getMonth()].pages += b.pages || 0; m[d.getMonth()].minutes += b.minutes || 0; }
     }
   });
   return m;
 }
 function yearsWithData() {
   const ys = new Set([new Date().getFullYear()]);
-  S.books.forEach(b => b.dateFinished && ys.add(+b.dateFinished.slice(0, 4)));
+  allReads().forEach(r => ys.add(+r.date.slice(0, 4)));
   S.sessions.forEach(s => ys.add(+s.date.slice(0, 4)));
   return [...ys].filter(Boolean).sort((a, b) => b - a);
 }
 function best(arr, key, labelFn) { let bi = -1, bv = 0; arr.forEach((x, i) => { if (x[key] > bv) { bv = x[key]; bi = i; } }); return bi < 0 ? null : { label: labelFn(bi), v: bv }; }
-const readInMonth = (i, y) => S.books.filter(b => b.status === 'read' && b.dateFinished && +b.dateFinished.slice(0, 4) === y && +b.dateFinished.slice(5, 7) === i + 1).sort((a, b) => String(b.dateFinished).localeCompare(String(a.dateFinished)));
+/* every reading finished in that month of that year, rereads included (a book read twice in a month appears twice) */
+const readInMonth = (i, y) => allReads().filter(r => +r.date.slice(0, 4) === y && +r.date.slice(5, 7) === i + 1).sort((a, b) => b.date.localeCompare(a.date));
 
 /* ================= components ================= */
 function coverHTML(b, cls = '') {
@@ -268,10 +287,15 @@ function tileHTML(c, kind) {
   return `<button class="tile" ${key} aria-label="${esc(label)}" ${adjAttrs()}>${coverHTML(c)}<div class="t" aria-hidden="true">${esc(c.title)}</div><div class="a" aria-hidden="true">${esc(c.author)}</div>${c.avg ? `<div class="r" aria-hidden="true"><span class="stars">★</span> ${numTxt(c.avg)}${c.ratings ? ` · ${c.ratings}` : ''}</div>` : ''}</button>`;
 }
 const candStore = {}; function remember(c) { const k = c.ext || ('c' + uid()); candStore[k] = c; return k; }
-function bookRowHTML(b) {
+function bookRowHTML(b, rd) {
   let sub = '', label = `${b.title}${byAuthor(b.author)}`;
-  if (b.status === 'reading') { sub = hasProg(b) ? `<span>${[pct(b) + '%', progPos(b)].filter(Boolean).join(' · ')}</span>` : `<span>${FORMAT(b.format)}</span>`; if (hasProg(b)) label += '. ' + t(b.format === 'audio' ? 'listenedPct' : 'pctRead', { p: pct(b) }); }
-  else if (b.status === 'read') { sub = `${b.rating ? `<span class="stars">${starsTxt(b.rating)}</span>` : ''}${b.dateFinished ? `<span>${fmtDate(b.dateFinished)}</span>` : ''}`; if (b.rating) label += '. ' + t('yourRating', { r: rateTxt(b.rating) }); if (b.dateFinished) label += '. ' + t('finishedOn', { d: fmtDate(b.dateFinished) }); }
+  if (rd) {   // one reading in a month folder: its own date, and whether it was a reread
+    sub = `${b.rating ? `<span class="stars">${starsTxt(b.rating)}</span>` : ''}<span>${fmtDate(rd.date)}</span>${rd.n > 1 ? `<span class="pill">${esc(t('reread'))}</span>` : ''}`;
+    if (b.rating) label += '. ' + t('yourRating', { r: rateTxt(b.rating) });
+    label += '. ' + (rd.n > 1 ? t('rereadOn', { d: fmtDate(rd.date) }) : t('finishedOn', { d: fmtDate(rd.date) }));
+  }
+  else if (b.status === 'reading') { sub = hasProg(b) ? `<span>${[pct(b) + '%', progPos(b)].filter(Boolean).join(' · ')}</span>` : `<span>${FORMAT(b.format)}</span>`; if (hasProg(b)) label += '. ' + t(b.format === 'audio' ? 'listenedPct' : 'pctRead', { p: pct(b) }); }
+  else if (b.status === 'read') { const nr = (b.reads || []).length; sub = `${b.rating ? `<span class="stars">${starsTxt(b.rating)}</span>` : ''}${b.dateFinished ? `<span>${fmtDate(b.dateFinished)}</span>` : ''}${nr > 1 ? `<span>${esc(t('readTimes', { n: nr }))}</span>` : ''}`; if (b.rating) label += '. ' + t('yourRating', { r: rateTxt(b.rating) }); if (b.dateFinished) label += '. ' + t('finishedOn', { d: fmtDate(b.dateFinished) }); if (nr > 1) label += '. ' + t('readTimes', { n: nr }); }
   else if (b.status === 'dnf') { sub = `<span>${hasProg(b) ? t('stoppedAt', { p: pct(b) }) : t('stopped')}</span>`; label += '. ' + STATUS('dnf'); }
   else { sub = `<span class="pill">${FORMAT(b.format)}</span>`; }
   const bar = b.status === 'reading' && hasProg(b) ? `<div class="bar"><i style="width:${pct(b)}%"></i></div>` : '';
@@ -349,7 +373,7 @@ screens.library = () => {
 };
 function listsHTML() {
   if (!S.lists.length) return `<div style="margin-top:12px">${emptyHTML(t('noListsYet'), t('noListsHint'))}</div>`;
-  return `<div class="label">${esc(tn(S.lists.length, 'list'))}</div><div class="group">${S.lists.map(l => { const n = S.books.filter(b => (b.lists || []).includes(l.id)).length; return cell({ attrs: `data-openlist="${esc(l.id)}"`, ico: 'folder', icoColor: '#2B7BE4', label: l.name, value: String(n), aria: `${l.name}, ${tn(n, 'book')}` }); }).join('')}</div>`;
+  return `<div class="label">${esc(tn(S.lists.length, 'list'))}</div><div class="group">${S.lists.map(l => { const n = S.books.filter(b => (b.lists || []).includes(l.id)).length; return cell({ attrs: `data-openlist="${esc(l.id)}" ${adjAttrs(t('act_openList'))}`, ico: 'folder', icoColor: '#2B7BE4', label: l.name, value: String(n), aria: `${l.name}, ${tn(n, 'book')}` }); }).join('')}</div>`;
 }
 function statsHTML() {
   const ys = yearsWithData(); if (!ys.includes(statYear)) statYear = ys[0];
@@ -576,7 +600,7 @@ pages.stats = () => navHTML(t('stats'), { back: backLabel() }) + statsHTML();
 pages.month = arg => {
   const [y, i] = arg.split('-').map(Number);
   const list = readInMonth(i, y);
-  return navHTML(`${MONTH(i)} ${y}`, { back: backLabel() }) + (list.length ? `<div class="label">${esc(tn(list.length, 'book'))}</div><div class="group" role="list">${list.map(b => `<div role="listitem">${bookRowHTML(b)}</div>`).join('')}</div>` : emptyHTML(t('noBooksHere'), t('noBooksMonth')));
+  return navHTML(`${MONTH(i)} ${y}`, { back: backLabel() }) + (list.length ? `<div class="label">${esc(tn(list.length, 'book'))}</div><div class="group" role="list">${list.map(r => `<div role="listitem">${bookRowHTML(r.b, r)}</div>`).join('')}</div>` : emptyHTML(t('noBooksHere'), t('noBooksMonth')));
 };
 pages.profile = () => `${navHTML(t('editProfile'), { back: backLabel() })}
   <form id="profileForm"><div class="group">
@@ -614,7 +638,7 @@ pages.history = () => {
   return `${navHTML(t('historyTitle'), { back: backLabel() })}${ev.length ? `<div class="group hist">${ev.map(e => `<div class="cell" style="cursor:default;flex-direction:column;align-items:flex-start;gap:2px"><span>${esc(txt(e) + detail(e))} „${esc(e.title)}”</span><span class="d">${fmtDate(e.date)}</span></div>`).join('')}</div>` : emptyHTML(t('noActivity'), t('noActivityHint'))}`;
 };
 pages.install = () => `${navHTML(t('install'), { back: backLabel() })}<div class="desc">${esc(t('installDesc'))}</div>`;
-pages.about = () => `${navHTML(t('about'), { back: backLabel() })}<div class="desc">${esc(t('aboutDesc', { v: '0.4.5' }))}</div>`;
+pages.about = () => `${navHTML(t('about'), { back: backLabel() })}<div class="desc">${esc(t('aboutDesc', { v: '0.5' }))}</div>`;
 pages.list = id => {
   const l = listById(id); if (!l) return navHTML(t('list'), { back: backLabel() }) + emptyHTML(t('listGone'), '');
   const items = sortBooks(S.books.filter(b => (b.lists || []).includes(id)), 'list');
@@ -661,11 +685,11 @@ let sheetReturn = null;
 function openSheet(html, label) {
   if (!$('#sheets').innerHTML) sheetReturn = document.activeElement;
   $('#sheets').innerHTML = `<div class="scrim" data-close></div><div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(label)}"><div class="in"><div class="grab" aria-hidden="true"></div>${html}</div></div>`;
-  $('#app').setAttribute('aria-hidden', 'true'); $('.tabbar').setAttribute('aria-hidden', 'true');
+  $('#app').setAttribute('aria-hidden', 'true'); $('.tabbar').setAttribute('aria-hidden', 'true'); $('#app').inert = true; $('.tabbar').inert = true;
   setTimeout(() => ($('#sheets [autofocus]') || $('#sheets h2, #sheets h3'))?.focus(), 60);
 }
 function closeSheet(noRestore) {
-  $('#sheets').innerHTML = ''; $('#app').removeAttribute('aria-hidden'); $('.tabbar').removeAttribute('aria-hidden');
+  $('#sheets').innerHTML = ''; $('#app').removeAttribute('aria-hidden'); $('.tabbar').removeAttribute('aria-hidden'); $('#app').inert = false; $('.tabbar').inert = false;
   if (!noRestore && sheetReturn && document.contains(sheetReturn)) sheetReturn.focus();
 }
 function refreshSheet(html) { const i = $('#sheets .in'); if (i) i.innerHTML = '<div class="grab" aria-hidden="true"></div>' + html; }
@@ -687,11 +711,11 @@ function bookSheet(b) {
   <div class="group"><fieldset class="field"><legend>${esc(t('shelf'))}</legend><div class="seg">${STATUS_KEYS.map(k => `<label>${esc(shortStatus(k))}<input type="radio" name="bstatus" value="${k}" ${b.status === k ? 'checked' : ''} aria-label="${esc(STATUS(k))}"></label>`).join('')}</div></fieldset>
   ${slider({ id: 'rateR', label: t('yourRatingLabel'), min: 0, max: 5, step: 0.5, value: b.rating || 0, text: rateTxt(b.rating || 0), extra: 'data-rater' })}<div class="field stars big" id="rateStars" aria-hidden="true">${starsTxt(b.rating || 0) || '☆☆☆☆☆'}</div></div>
   ${b.status === 'reading' || b.status === 'want' ? prog : ''}
-  <div class="btns">${b.status !== 'read' ? `<button class="btn primary" data-session="${esc(b.id)}">${esc(t('logSession'))}</button>` : ''}${b.status === 'reading' ? `<button class="btn plain" data-finish="${esc(b.id)}">${esc(t('finishedIt'))}</button>` : ''}${b.status === 'read' ? `<button class="btn plain" data-askformat="${esc(b.id)}">${esc(t('formatReadIn', { f: FORMAT(b.format) }))}</button>` : ''}</div>
+  <div class="btns">${b.status !== 'read' ? `<button class="btn primary" data-session="${esc(b.id)}">${esc(t('logSession'))}</button>` : ''}${b.status === 'reading' ? `<button class="btn plain" data-finish="${esc(b.id)}">${esc(t('finishedIt'))}</button>` : ''}${b.status === 'read' ? `<button class="btn plain" data-askformat="${esc(b.id)}">${esc(t('formatReadIn', { f: FORMAT(b.format) }))}</button><button class="btn plain" data-act="reread" data-ab="${esc(b.id)}">${esc(t('act_reread'))}</button><button class="btn plain" data-act="readagain" data-ab="${esc(b.id)}">${esc(t('act_readagain'))}</button>` : ''}</div>
   <div class="label">${esc(t('lists'))}</div><div class="group">${cell({ attrs: `data-picklists="${esc(b.id)}"`, ico: 'folder', icoColor: '#2B7BE4', label: listsOf.length ? listsOf.join(', ') : t('addToList'), aria: listsOf.length ? t('inLists', { x: listsOf.join(', ') }) : t('addToList') })}</div>
   ${b.review ? `<div class="label">${esc(t('yourReview'))}</div><div class="desc">${esc(b.review)}</div>` : ''}
   ${b.description ? `<div class="label">${esc(t('aboutBook'))}</div><div class="desc">${esc(b.description.slice(0, 1500))}${b.description.length > 1500 ? '…' : ''}</div>` : ''}
-  <div class="label">${esc(t('dates'))}</div><div class="group">${infoRow(t('added'), fmtDate(b.dateAdded))}${b.dateStarted ? infoRow(t('started'), fmtDate(b.dateStarted)) : ''}${b.dateFinished ? infoRow(t('finished'), fmtDate(b.dateFinished)) : ''}${b.minutes ? infoRow(t('readingTime'), hours(b.minutes)) : ''}${b.isbn ? infoRow('ISBN', b.isbn) : ''}</div>
+  <div class="label">${esc(t('dates'))}</div><div class="group">${infoRow(t('added'), fmtDate(b.dateAdded))}${b.dateStarted ? infoRow(t('started'), fmtDate(b.dateStarted)) : ''}${(b.reads || []).length > 1 ? [...b.reads].sort().map((d, i) => infoRow(i ? t('rereadN', { n: i }) : t('firstRead'), fmtDate(d))).join('') : (b.dateFinished ? infoRow(t('finished'), fmtDate(b.dateFinished)) : '')}${b.minutes ? infoRow(t('readingTime'), hours(b.minutes)) : ''}${b.isbn ? infoRow('ISBN', b.isbn) : ''}</div>
   <div class="btns">${b.author ? `<button class="btn plain" data-author="${esc(b.author.split(',')[0])}">${esc(t('moreBy', { a: b.author.split(',')[0] }))}</button>` : ''}<button class="btn danger" data-askdel="${esc(b.id)}">${esc(t('deleteFromLibrary'))}</button><div id="delBox"></div></div>`;
 }
 function candSheet(c) {
@@ -714,6 +738,7 @@ function actionOpts(kind, key) {
   const opts = [];
   if (!lib || lib.status !== 'want') opts.push(['want', t('act_want')]);
   if (!lib || lib.status !== 'read') opts.push(['read', t('act_read')]);
+  if (lib && lib.status === 'read') { opts.push(['reread', t('act_reread')]); opts.push(['readagain', t('act_readagain')]); }
   opts.push(['rate', t('act_rate')]);
   if (lib) opts.push(['progress', t('act_progress')]);
   opts.push(['open', t('act_open')]);
@@ -727,17 +752,41 @@ function actionSheet(kind, key) {
   openSheet(`${sheetHead(r.item.title)}<div class="group">${r.opts.map(([k, v], i) => cell({ attrs: `data-act="${k}" ${ref} ${i === 0 ? 'autofocus' : ''}`, label: v, chev: false })).join('')}</div>`, t('optionsFor', { x: r.item.title }));
 }
 /* VoiceOver: swipe up/down on a title cycles the same options (adjustable element); double tap runs the one heard */
+/* iPhone/iPad (VoiceOver): menus are adjustable, swipe up/down picks an option. Elsewhere (Windows with NVDA, keyboard, mouse)
+   the same elements stay plain buttons; the menu opens with Shift+F10, the Applications key or right click. */
+const SWIPE_MENUS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const menuTarget = el => el && el.closest ? el.closest('[data-book],[data-cand],[data-openlist]') : null;
+function listOpts(l) { return l ? [['open', t('act_openList')], ['addbooks', t('addToListTitle')], ['rename', t('renameList')], ['dellist', t('deleteList')]] : []; }
 function adjOpts(it) {
+  if (it.dataset.openlist) return listOpts(listById(it.dataset.openlist));
   const r = actionOpts(it.dataset.book ? 'book' : 'cand', it.dataset.book || it.dataset.cand); if (!r) return [];
   return [['open', t('act_open')], ...r.opts.filter(o => o[0] !== 'open')];
 }
-function adjAttrs() { return `role="slider" aria-valuemin="0" aria-valuemax="9" aria-valuenow="0" aria-valuetext="${esc(t('act_open'))}" data-ai="0"`; }
+function adjAttrs(first = t('act_open')) {
+  if (!SWIPE_MENUS) return `aria-keyshortcuts="Shift+F10" aria-description="${esc(t('menuHint'))}"`;
+  return `role="slider" aria-valuemin="0" aria-valuemax="9" aria-valuenow="0" aria-valuetext="${esc(first)}" data-ai="0"`;
+}
+function listMenuSheet(l) {
+  return `${sheetHead(l.name)}<div class="group">${listOpts(l).map(([k, v], i) => cell({ attrs: `data-lact="${k}" data-lid="${esc(l.id)}" ${i === 0 ? 'autofocus' : ''}`, label: v, chev: false })).join('')}</div>`;
+}
+function listDeleteSheet(l) {
+  return `${sheetHead(t('deleteList'))}<p class="desc" style="padding:0 20px">${esc(t('confirmDeleteListQ', { x: l.name }))}</p><p class="foot">${esc(t('deleteListNote'))}</p>
+  <div class="btns"><button class="btn danger" data-dellist="${esc(l.id)}">${esc(t('yesDelete'))}</button><button class="btn plain" data-close autofocus>${esc(t('noKeep'))}</button></div>`;
+}
+function listAction(act, id) {
+  const l = listById(id); if (!l) return;
+  closeSheet(true);
+  if (act === 'open') push('list', l.id, l.name);
+  else if (act === 'addbooks') openSheet(addToListSheet(l.id), t('addToListTitle'));
+  else if (act === 'rename') openSheet(listNameSheet(l), t('renameList'));
+  else if (act === 'dellist') openSheet(listDeleteSheet(l), t('deleteList'));
+}
 function adjStep(it, dir) {
   const o = adjOpts(it); if (!o.length) return;
   const i = ((+it.dataset.ai || 0) + dir + o.length) % o.length;
   it.dataset.ai = i; it.setAttribute('aria-valuemax', o.length - 1); it.setAttribute('aria-valuenow', i); it.setAttribute('aria-valuetext', o[i][1]);
 }
-function adjReset(it) { it.dataset.ai = 0; it.setAttribute('aria-valuenow', 0); it.setAttribute('aria-valuetext', t('act_open')); }
+function adjReset(it) { if (it.dataset.ai === undefined) return; it.dataset.ai = 0; it.setAttribute('aria-valuenow', 0); const o = adjOpts(it); it.setAttribute('aria-valuetext', o.length ? o[0][1] : t('act_open')); }
 function rateSheet(b) {
   return `${sheetHead(t('rateTitle', { title: b.title }), `<button class="strong" data-close>${esc(t('done'))}</button>`)}
   <div class="group">${slider({ id: 'rateR2', label: t('yourRatingLabel'), min: 0, max: 5, step: 0.5, value: b.rating || 0, text: rateTxt(b.rating || 0), extra: `data-rater="${esc(b.id)}" autofocus` })}<div class="field stars big" id="rateStars" aria-hidden="true">${starsTxt(b.rating || 0) || '☆☆☆☆☆'}</div></div>`;
@@ -820,7 +869,7 @@ function pickListsSheet(b) {
 function listNameSheet(l) {
   return `<form id="listForm" data-id="${esc(l ? l.id : '')}">${sheetHead(l ? t('renameList') : t('newList'), `<button type="submit" class="strong">${esc(t('save'))}</button>`).replace('data-close', 'type="button" data-close')}
   <div class="group"><div class="field"><label for="l-name">${esc(t('listName'))}</label><input id="l-name" name="name" value="${esc(l ? l.name : '')}" autofocus></div></div><p class="foot" id="listErr" role="alert"></p></form>
-  ${l ? `<div class="btns"><button class="btn danger" data-dellist="${esc(l.id)}">${esc(t('deleteList'))}</button></div><p class="foot">${esc(t('deleteListNote'))}</p>` : ''}`;
+  ${l ? `<div class="btns"><button type="button" class="btn danger" data-lact="dellist" data-lid="${esc(l.id)}">${esc(t('deleteList'))}</button></div><p class="foot">${esc(t('deleteListNote'))}</p>` : ''}`;
 }
 function addToListSheet(id) {
   const l = listById(id); const cands = [...S.books].sort((a, b) => a.title.localeCompare(b.title, LOC()));
@@ -862,6 +911,7 @@ function importCSV(text) {
     const b = { id: uid(), ext: '', ...cand, page: st === 'read' ? cand.pages : 0, description: '', cover: cand.isbn ? `https://covers.openlibrary.org/b/isbn/${cand.isbn}-M.jpg?default=false` : '', categories: [], avg: 0, ratings: 0, genre: '',
       format: fmt, status: st, rating: Math.round((+g(r, c.rating) || 0) * 2) / 2, review: g(r, c.review).replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ''), lists: [],
       dateAdded: date(g(r, c.dateAdded)) || today(), dateStarted: date(g(r, c.started)), dateFinished: st === 'read' ? (date(g(r, c.dateRead)) || '') : '', minutes: 0 };
+    b.reads = b.dateFinished ? [b.dateFinished] : [];
     for (const sh of shelves) { if (shelfMap(sh)) continue; let l = S.lists.find(x => norm(x.name) === norm(sh)); if (!l) { l = { id: uid(), name: sh }; S.lists.push(l); listsMade++; } b.lists.push(l.id); }
     S.books.push(b); added++;
   }
@@ -883,7 +933,9 @@ document.addEventListener('click', e => {
   if (d.libseg) { if (tab !== 'library') { tab = 'library'; stack.library = []; } libSeg = d.libseg; render(true); return; }
   if (el.hasAttribute('data-month')) { const i = +d.month; push('month', `${statYear}-${i}`, `${MONTH(i)} ${statYear}`); return; }
   if (d.year) { statYear = +d.year; openMonths.clear(); render(); $(`[data-year="${statYear}"]`)?.focus(); return; }
+  if (d.ai && d.ai !== '0' && d.openlist) { const o = adjOpts(el)[+d.ai]; adjReset(el); if (o) listAction(o[0], d.openlist); return; }
   if (d.ai && d.ai !== '0' && (d.book || d.cand)) { const o = adjOpts(el)[+d.ai]; adjReset(el); if (o) doAction(o[0], d.book, d.book ? null : d.cand); return; }
+  if (d.lact) { listAction(d.lact, d.lid); return; }
   if (d.book) { const b = byId(d.book); if (b) { closeSheet(true); openSheet(bookSheet(b), b.title); } return; }
   if (d.cand) { const c = candStore[d.cand]; if (c) openSheet(candSheet(c), c.title); return; }
   if (d.quickadd) { const c = candStore[d.quickadd]; if (c) openSheet(quickAddSheet(c), t('add')); return; }
@@ -901,7 +953,7 @@ document.addEventListener('click', e => {
   if (d.picklists) { const b = byId(d.picklists); if (b) { closeSheet(true); openSheet(pickListsSheet(b), t('lists')); sheetBook = b.id; } return; }
   if ('newlist' in d) { openSheet(listNameSheet(null), t('newList')); return; }
   if (d.openlist) { const l = listById(d.openlist); if (l) push('list', l.id, l.name); return; }
-  if (d.listmenu) { const l = listById(d.listmenu); if (l) openSheet(listNameSheet(l), t('editList')); return; }
+  if (d.listmenu) { const l = listById(d.listmenu); if (l) openSheet(listMenuSheet(l), t('optionsFor', { x: l.name })); return; }
   if (d.dellist) { const l = listById(d.dellist); S.lists = S.lists.filter(x => x.id !== d.dellist); S.books.forEach(b => b.lists = (b.lists || []).filter(id => id !== d.dellist)); persist(); closeSheet(true); if (current() && current().name === 'list') stack[tab].pop(); render(true); toast(t('listDeleted', { x: l ? l.name : '' })); return; }
   if (d.addtolist) { openSheet(addToListSheet(d.addtolist), t('addToListTitle')); return; }
   if (d.genre) { const i = +d.genre; if (discoverState.genre === i) { discoverState = { genre: null, results: null }; render(); return; } discoverState = { genre: i, results: null }; render(); $(`[data-genre="${i}"]`)?.focus(); catalog(DISCOVER[i][1], { max: 30 }).then(r => { if (discoverState.genre !== i) return; discoverState.results = r; renderPart('#genreBox', r.length ? `<div class="group" role="list">${r.map(c => `<div role="listitem">${candRowHTML(c)}</div>`).join('')}</div>` : emptyHTML(t('nothingFound'), t('tryOtherGenre'))); say(`${genreName(DISCOVER[i][0])}: ${tn(r.length, 'book')}`); }); return; }
@@ -926,6 +978,8 @@ function doAction(act, bid, ckey) {
     case 'author': push('author', (b || c).author.split(',')[0], (b || c).author.split(',')[0]); break;
     case 'lists': if (b) { openSheet(pickListsSheet(b), t('lists')); sheetBook = b.id; } break;
     case 'progress': if (b) openSheet(progressSheet(b), t('editProgress')); break;
+    case 'reread': if (b) { setStatus(b, 'reading'); b.lastTouch = Date.now(); persist(); libSeg = 'reading'; toast(t('rereadStarted', { title: b.title })); render(); } break;
+    case 'readagain': if (b) { readAgain(b); b.lastTouch = Date.now(); persist(); toast(t('rereadSaved', { title: b.title, n: (b.reads || []).length })); render(); } break;
   }
 }
 let sheetBook = null;
@@ -944,7 +998,7 @@ document.addEventListener('change', e => {
   if (el.name === 'lang') { S.settings.lang = el.value; persist(); const top = current(); if (top) top.title = t('language'); stack[tab].forEach(p => { if (p.name !== 'list' && p.name !== 'author' && p.name !== 'language') p.title = null; }); render(); $(`input[name=lang][value=${el.value}]`)?.focus(); say(t('languageChanged')); return; }
   if (el.id === 'onlyRo') { S.settings.onlyRo = el.checked; persist(); for (const k in cache) delete cache[k]; say(el.checked ? t('roFirstOn') : t('roFirstOff')); return; }
   if (el.id === 'csvFile' && el.files[0]) { const fr = new FileReader(); fr.onload = () => { try { const r = importCSV(String(fr.result)); renderPart('#importOut', `<div class="desc" style="margin-top:14px">${esc(t('importDone', { x: tn(r.added, 'book') }) + (r.listsMade ? ' ' + t('importLists', { x: tn(r.listsMade, 'list') }) : '') + (r.skipped ? ' ' + t('importSkipped', { x: tn(r.skipped, 'book') }) : ''))}</div>`); say(t('importDone', { x: tn(r.added, 'book') })); } catch (err) { renderPart('#importOut', `<div class="desc" style="margin-top:14px">${esc(err.message)}</div>`); say(err.message); } }; fr.readAsText(el.files[0]); return; }
-  if (el.id === 'jsonFile' && el.files[0]) { const fr = new FileReader(); fr.onload = () => { try { const d = JSON.parse(String(fr.result)); if (!d.books) throw 0; const lang = S.settings.lang; S = Object.assign(blank(), d); S.settings = Object.assign(blank().settings, d.settings || {}, { lang }); persist(); renderPart('#backupOut', `<div class="desc" style="margin-top:14px">${esc(t('restored', { x: tn(S.books.length, 'book') }))}</div>`); say(t('restoredShort')); } catch (err) { renderPart('#backupOut', `<div class="desc" style="margin-top:14px">${esc(t('notBackup'))}</div>`); } }; fr.readAsText(el.files[0]); return; }
+  if (el.id === 'jsonFile' && el.files[0]) { const fr = new FileReader(); fr.onload = () => { try { const d = JSON.parse(String(fr.result)); if (!d.books) throw 0; const lang = S.settings.lang; S = Object.assign(blank(), d); S.settings = Object.assign(blank().settings, d.settings || {}, { lang }); migrateReads(); persist(); renderPart('#backupOut', `<div class="desc" style="margin-top:14px">${esc(t('restored', { x: tn(S.books.length, 'book') }))}</div>`); say(t('restoredShort')); } catch (err) { renderPart('#backupOut', `<div class="desc" style="margin-top:14px">${esc(t('notBackup'))}</div>`); } }; fr.readAsText(el.files[0]); return; }
 });
 document.addEventListener('submit', e => {
   e.preventDefault(); const f = e.target, fd = new FormData(f);
@@ -953,8 +1007,16 @@ document.addEventListener('submit', e => {
     const title = String(fd.get('title') || '').trim(); if (!title) { $('#editErr').textContent = t('writeTitle'); $('#e-title').focus(); return; }
     const id = f.dataset.id; let b = id ? byId(id) : null;
     const vals = { title, author: String(fd.get('author') || '').trim(), format: fd.get('format') || 'print', genre: String(fd.get('genre') || ''), pages: +fd.get('pages') || 0, page: +fd.get('page') || 0, review: String(fd.get('review') || '').trim(), dateFinished: String(fd.get('dateFinished') || '') };
-    if (b) { Object.assign(b, vals); b.lastTouch = Date.now(); persist(); closeSheet(true); openSheet(bookSheet(b), b.title); toast(t('changesSaved')); }
-    else { b = addBook(vals, fd.get('status') || 'want'); Object.assign(b, vals); libSeg = b.status; persist(); closeSheet(true); toast(t('addedNamed', { title: b.title })); }
+    if (b) {
+      const oldFin = b.dateFinished; Object.assign(b, vals); b.reads = b.reads || [];
+      if (b.status === 'read' && vals.dateFinished !== oldFin) {   // the edited date is the latest reading
+        const i = b.reads.lastIndexOf(oldFin);
+        if (vals.dateFinished) { if (i >= 0) b.reads[i] = vals.dateFinished; else b.reads.push(vals.dateFinished); } else if (i >= 0) b.reads.splice(i, 1);
+        b.dateFinished = [...b.reads].sort().pop() || '';
+      }
+      b.lastTouch = Date.now(); persist(); closeSheet(true); openSheet(bookSheet(b), b.title); toast(t('changesSaved'));
+    }
+    else { b = addBook(vals, fd.get('status') || 'want'); Object.assign(b, vals); if (b.status === 'read' && vals.dateFinished) b.reads = [vals.dateFinished]; libSeg = b.status; persist(); closeSheet(true); toast(t('addedNamed', { title: b.title })); }
     render(); return;
   }
   if (f.id === 'progForm') {
@@ -993,27 +1055,32 @@ function exportBackup() {
   toast(t('backupSaved'));
 }
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && $('#sheets').innerHTML) closeSheet();
+  if (e.key === 'Escape' && $('#sheets').innerHTML) { closeSheet(); return; }
+  if (e.key === 'Tab' && $('#sheets').innerHTML) {   // keyboard focus stays inside the open sheet
+    const f = [...$('#sheets').querySelectorAll('button,input,select,textarea,a[href],[tabindex]:not([tabindex="-1"])')].filter(x => !x.disabled && x.offsetParent !== null);
+    if (f.length) { const i = f.indexOf(document.activeElement); if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); } else if (!e.shiftKey && (i === f.length - 1 || i < 0)) { e.preventDefault(); f[0].focus(); } }
+  }
   const el = e.target;
   if (el.getAttribute && el.getAttribute('role') === 'tab' && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { const tabs = [...el.parentElement.querySelectorAll('[role=tab]')]; const i = tabs.indexOf(el); const n = tabs[(i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length]; n.focus(); n.click(); }
   if (el.dataset && el.dataset.ai !== undefined && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) { e.preventDefault(); adjStep(el, e.key === 'ArrowDown' || e.key === 'ArrowLeft' ? 1 : -1); return; }
-  if ((e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) && el.closest) { const it = el.closest('[data-book],[data-cand]'); if (it) { e.preventDefault(); openActionsFor(it); } }
+  if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { const it = menuTarget(el); if (it) { e.preventDefault(); openActionsFor(it); } }
 });
 /* long press (also VoiceOver double-tap-and-hold) and right click open the options menu */
 function openActionsFor(it) {
+  if (it.dataset.openlist) { const l = listById(it.dataset.openlist); if (l) openSheet(listMenuSheet(l), t('optionsFor', { x: l.name })); return; }
   if (it.closest('#sheets') && !it.closest('[role=list]')) return;
   if (it.dataset.book) actionSheet('book', it.dataset.book); else if (it.dataset.cand) actionSheet('cand', it.dataset.cand);
 }
 let lpTimer = null, lpStart = null;
 document.addEventListener('touchstart', e => {
-  const it = e.target.closest && e.target.closest('[data-book],[data-cand]'); if (!it || it.classList.contains('go') || it.classList.contains('addmini')) return;
+  const it = menuTarget(e.target); if (!it || it.classList.contains('go') || it.classList.contains('addmini')) return;
   const tch = e.touches[0]; lpStart = { x: tch.clientX, y: tch.clientY };
   clearTimeout(lpTimer);
   lpTimer = setTimeout(() => { lpTimer = null; suppressClick = true; setTimeout(() => { suppressClick = false; }, 900); if (navigator.vibrate) navigator.vibrate(15); openActionsFor(it); }, 550);
 }, { passive: true });
 document.addEventListener('touchmove', e => { if (!lpTimer || !lpStart) return; const tch = e.touches[0]; if (Math.abs(tch.clientX - lpStart.x) > 10 || Math.abs(tch.clientY - lpStart.y) > 10) { clearTimeout(lpTimer); lpTimer = null; } }, { passive: true });
 document.addEventListener('touchend', () => { clearTimeout(lpTimer); lpTimer = null; });
-document.addEventListener('contextmenu', e => { const it = e.target.closest && e.target.closest('[data-book],[data-cand]'); if (it && !it.classList.contains('go') && !it.classList.contains('addmini')) { e.preventDefault(); openActionsFor(it); } });
+document.addEventListener('contextmenu', e => { const it = menuTarget(e.target); if (it && !it.classList.contains('go') && !it.classList.contains('addmini')) { e.preventDefault(); openActionsFor(it); } });
 
 /* ================= start ================= */
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
