@@ -548,6 +548,14 @@ Object.assign(I18N.fr, {"aboutDesc": "Regatul Cărților, version {v}.\n\nUne ap
 Object.assign(I18N.de, {"aboutDesc": "Regatul Cărților, Version {v}.\n\nEine Lese-App für Screenreader: VoiceOver auf dem iPhone und NVDA mit Tastatur unter Windows. Die Buchdaten kommen von Google Books, Voxa und Open Library, aus jedem Land und in jeder Sprache. Deine Bibliothek bleibt auf deinem Gerät."});
 Object.assign(I18N.it, {"aboutDesc": "Regatul Cărților, versione {v}.\n\nUn'app di lettura pensata per gli screen reader: VoiceOver su iPhone e NVDA con la tastiera su Windows. I dati dei libri arrivano da Google Books, Voxa e Open Library, da ogni paese e in ogni lingua. La tua biblioteca resta sul tuo dispositivo."});
 Object.assign(I18N.pt, {"aboutDesc": "Regatul Cărților, versão {v}.\n\nUma app de leitura pensada para leitores de ecrã: VoiceOver no iPhone e NVDA com teclado no Windows. Os dados dos livros vêm do Google Books, Voxa e Open Library, de qualquer país e em qualquer língua. A tua biblioteca fica no teu dispositivo."});
+/* 0.5.1: the app checks for a new version on start and when you come back to it */
+Object.assign(I18N.en, {"updating": "Updating.", "updateDone": "100 percent. Update complete."});
+Object.assign(I18N.ro, {"updating": "Se actualizează.", "updateDone": "100 la sută. Actualizare terminată."});
+Object.assign(I18N.es, {"updating": "Actualizando.", "updateDone": "100 por ciento. Actualización terminada."});
+Object.assign(I18N.fr, {"updating": "Mise à jour.", "updateDone": "100 pour cent. Mise à jour terminée."});
+Object.assign(I18N.de, {"updating": "Wird aktualisiert.", "updateDone": "100 Prozent. Aktualisierung abgeschlossen."});
+Object.assign(I18N.it, {"updating": "Aggiornamento in corso.", "updateDone": "100 per cento. Aggiornamento completato."});
+Object.assign(I18N.pt, {"updating": "A atualizar.", "updateDone": "100 por cento. Atualização concluída."});
 /* Genres and subgenres: id -> [en, ro, es, fr, de, it, pt] */
 window.GENRES = {
   fiction: ["Fiction", "Ficțiune", "Ficción", "Fiction", "Belletristik", "Narrativa", "Ficção"],

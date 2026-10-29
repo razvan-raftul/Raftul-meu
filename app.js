@@ -638,7 +638,7 @@ pages.history = () => {
   return `${navHTML(t('historyTitle'), { back: backLabel() })}${ev.length ? `<div class="group hist">${ev.map(e => `<div class="cell" style="cursor:default;flex-direction:column;align-items:flex-start;gap:2px"><span>${esc(txt(e) + detail(e))} „${esc(e.title)}”</span><span class="d">${fmtDate(e.date)}</span></div>`).join('')}</div>` : emptyHTML(t('noActivity'), t('noActivityHint'))}`;
 };
 pages.install = () => `${navHTML(t('install'), { back: backLabel() })}<div class="desc">${esc(t('installDesc'))}</div>`;
-pages.about = () => `${navHTML(t('about'), { back: backLabel() })}<div class="desc">${esc(t('aboutDesc', { v: '0.5' }))}</div>`;
+pages.about = () => `${navHTML(t('about'), { back: backLabel() })}<div class="desc">${esc(t('aboutDesc', { v: '0.5.1' }))}</div>`;
 pages.list = id => {
   const l = listById(id); if (!l) return navHTML(t('list'), { back: backLabel() }) + emptyHTML(t('listGone'), '');
   const items = sortBooks(S.books.filter(b => (b.lists || []).includes(id)), 'list');
@@ -1085,4 +1085,30 @@ document.addEventListener('contextmenu', e => { const it = menuTarget(e.target);
 /* ================= start ================= */
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 render();
+
+/* Actualizarea: aplicația de pe ecranul de pornire al iPhone-ului rămâne deschisă în fundal și nu se reîncarcă singură.
+   La pornire și de fiecare dată când revii în ea, verifică versiunea de pe GitHub (?v= din index.html); dacă e alta,
+   cititorul de ecran spune „Se actualizează”, pagina se reîncarcă, apoi spune „100 la sută. Actualizare terminată.” */
+const MY_V = (document.querySelector('script[src*="app.js"]')?.getAttribute('src').match(/v=([^&]+)/) || [])[1] || '';
+let updChecking = false, updLast = 0;
+async function checkUpdate() {
+  if (updChecking || !MY_V || location.protocol !== 'https:' || Date.now() - updLast < 20000) return;
+  updChecking = true; updLast = Date.now();
+  try {
+    const html = await fetch('index.html', { cache: 'no-store' }).then(r => r.ok ? r.text() : '');
+    const v = (html.match(/app\.js\?v=([^"'&]+)/) || [])[1];
+    if (v && v !== MY_V) {
+      say(t('updating'));
+      try { sessionStorage.setItem('rc-updated', '1'); } catch (e) {}
+      try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); } catch (e) {}
+      setTimeout(() => location.reload(), 1200);
+      return;
+    }
+  } catch (e) {}
+  updChecking = false;
+}
+try { if (sessionStorage.getItem('rc-updated')) { sessionStorage.removeItem('rc-updated'); setTimeout(() => say(t('updateDone')), 1200); } } catch (e) {}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdate(); });
+window.addEventListener('pageshow', () => checkUpdate());
+setTimeout(checkUpdate, 1500);
 })();
