@@ -1,0 +1,65 @@
+name: windows
+# Programul de Windows (folderul windows). Pagina web nu are nevoie de compilare: GitHub Pages o publică singur.
+on:
+  push:
+    branches: [main]
+    paths: ['windows/**', '.github/workflows/windows.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: windows
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      APPVER: 1.0.${{ github.run_number }}
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+      - name: Program
+        run: |
+          dotnet build RegatulCartilor.csproj -c Release "-p:Version=$env:APPVER" -o out
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem out -Recurse | ForEach-Object { Write-Host "$($_.FullName) $($_.Length)" }
+      - name: NVDA Controller Client (NVDA spune progresul actualizării)
+        run: |
+          $ErrorActionPreference = 'Continue'
+          try {
+            Invoke-WebRequest "https://download.nvaccess.org/releases/2024.4/nvda_2024.4_controllerClient.zip" -OutFile nvdacc.zip
+            Expand-Archive nvdacc.zip -DestinationPath nvdacc -Force
+            $toate = Get-ChildItem nvdacc -Recurse -Filter 'nvdaControllerClient*.dll'
+            $x64 = $toate | Where-Object { $_.FullName -match '\\x64\\' -or $_.Name -match '64\.dll$' } | Select-Object -First 1
+            $x86 = $toate | Where-Object { $_.FullName -match '\\x86\\' -or $_.Name -match '32\.dll$' } | Select-Object -First 1
+            if ($x64) { Copy-Item $x64.FullName out\nvdaControllerClient.dll; Write-Host "x64: $($x64.FullName)" }
+            if ($x86) { Copy-Item $x86.FullName nvdaControllerClient32.dll; Write-Host "x86: $($x86.FullName)" }
+          } catch { Write-Host "Fara NVDA Controller Client: $_" }
+          exit 0
+      - name: Proba programului
+        run: |
+          $p = Start-Process "out\RegatulCartilor.exe" -ArgumentList '--autotest', 'autotest.txt' -PassThru
+          if (-not $p.WaitForExit(60000)) { Stop-Process -Id $p.Id -Force; Write-Host "Programul nu s-a terminat"; exit 1 }
+          $t = ''; if (Test-Path autotest.txt) { $t = Get-Content autotest.txt -Raw -Encoding utf8 }
+          Write-Host $t
+          if ($t -notmatch 'AUTOTEST OK') { Write-Host "Proba a esuat"; exit 1 }
+      - name: Program de instalare
+        run: |
+          try { Invoke-WebRequest "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/Romanian.isl" -OutFile Romanian.isl } catch { Write-Host "Fara traducere romana" }
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          & $iscc "/DAppVersion=$env:APPVER" installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Publicare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          Set-Content -Path version.txt -Value $env:APPVER -NoNewline -Encoding ascii
+          if (Test-Path autotest.txt) { Copy-Item autotest.txt diagnostic.txt }
+          gh release delete windows --yes --cleanup-tag 2>$null
+          gh release create windows RegatulCartilor-Setup.exe version.txt diagnostic.txt --title "Regatul Cărților pentru Windows $env:APPVER" --notes "RegatulCartilor-Setup.exe instaleaza programul pe Windows. Aplicatia se actualizeaza singura la pornire, odata cu cea de pe iPhone."
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
