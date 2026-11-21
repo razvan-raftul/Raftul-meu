@@ -652,6 +652,7 @@ window.GENRE_GROUPS = [
 
 /* cont și sincronizare (21 nov. 2026) */
 Object.assign(I18N.en, {
+  welcomeTitle: "Create your account", haveAccount: "I already have an account, sign in", later: "Later",
   password: "Password", passwordNote: "At least 6 characters. Use the same email and password on your phone, computer or any other device.",
   signIn: "Sign in", signUp: "Create a new account", forgotPass: "I forgot my password", signOut: "Sign out", syncNow: "Sync now",
   cloudIntro: "With an account, your library is the same on your phone, your computer and any other device. Every change is saved by itself.",
@@ -667,6 +668,7 @@ Object.assign(I18N.en, {
   errEmail: "Write a valid email address.", errEmailUsed: "There is already an account with this email. Press Sign in.", errWeak: "The password needs at least 6 characters.", errWrong: "The email or the password is wrong.", errMany: "Too many tries. Wait a few minutes.", errNet: "No internet connection.", errOther: "It did not work. Try again."
 });
 Object.assign(I18N.ro, {
+  welcomeTitle: "Fă-ți un cont", haveAccount: "Am deja cont, intră în cont", later: "Mai târziu",
   password: "Parolă", passwordNote: "Cel puțin 6 caractere. Folosești același e-mail și aceeași parolă pe telefon, pe calculator sau pe orice alt dispozitiv.",
   signIn: "Intră în cont", signUp: "Creează un cont nou", forgotPass: "Am uitat parola", signOut: "Ieși din cont", syncNow: "Sincronizează acum",
   cloudIntro: "Cu un cont, biblioteca ta e aceeași pe telefon, pe calculator și pe orice alt dispozitiv. Orice schimbare se salvează singură.",

@@ -780,6 +780,7 @@ async function doLogin(mode, email, pass) {
     if (mode === 'signup') await fb.A.createUserWithEmailAndPassword(fb.auth, email, pass);
     else if (mode === 'reset') { await fb.A.sendPasswordResetEmail(fb.auth, email); toast(t('resetSent', { x: email })); return; }
     else await fb.A.signInWithEmailAndPassword(fb.auth, email, pass);
+    if ($('#sheets #loginForm')) closeSheet();
     toast(t(mode === 'signup' ? 'signedUp' : 'signedIn'));
   } catch (e) { showAuthErr(authErr(e)); $('#l-mail')?.focus(); }
 }
@@ -793,8 +794,18 @@ function syncStatusText() {
   if (syncMeta.at) return t('cloudStOk', { x: new Date(syncMeta.at).toLocaleString(L() === 'ro' ? 'ro-RO' : undefined, { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) });
   return t('cloudStWorking');
 }
-// la pornire: dacă dispozitivul e legat de un cont, pornește sincronizarea
+// la pornire: dacă dispozitivul e legat de un cont, pornește sincronizarea; dacă nu, cere să-ți faci cont
+function accountSheet() {
+  return `${sheetHead(t('welcomeTitle'))}<p class="foot">${esc(t('cloudIntro'))}</p>
+  <form id="loginForm"><div class="group">
+   <div class="field"><label for="l-mail">${esc(t('email'))}</label><input id="l-mail" name="email" type="email" autocomplete="email" autocapitalize="off" autofocus value="${esc(S.account.email || '')}"></div>
+   <div class="field"><label for="l-pass">${esc(t('password'))}</label><input id="l-pass" name="pass" type="password" autocomplete="new-password"></div>
+  </div><div class="foot">${esc(t('passwordNote'))}</div>
+  <p id="authErr" role="alert" class="err"></p>
+  <div class="btns"><button class="btn primary" type="submit" name="mode" value="signup">${esc(t('signUp'))}</button><button class="btn plain" type="submit" name="mode" value="login">${esc(t('haveAccount'))}</button><button class="btn plain" type="submit" name="mode" value="reset">${esc(t('forgotPass'))}</button><button class="btn plain" type="button" data-close>${esc(t('later'))}</button></div></form>`;
+}
 if (syncMeta.uid) setTimeout(() => fbLoad().catch(() => { cloudState = 'error'; }), 800);
+else setTimeout(() => { if (!syncMeta.uid && !$('#sheets').innerHTML) openSheet(accountSheet(), t('welcomeTitle')); }, 1200);
 // ce s-a schimbat fără internet se trimite când revine conexiunea
 window.addEventListener('online', () => { if (cloudUser && cloudReady) cloudUpload(); });
 
