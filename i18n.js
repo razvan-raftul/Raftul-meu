@@ -685,3 +685,39 @@ Object.assign(I18N.ro, {
   cloudTooBig: "Biblioteca e prea mare pentru sincronizare.",
   errEmail: "Scrie o adresă de e-mail corectă.", errEmailUsed: "Există deja un cont cu acest e-mail. Apasă Intră în cont.", errWeak: "Parola trebuie să aibă cel puțin 6 caractere.", errWrong: "E-mailul sau parola nu sunt corecte.", errMany: "Prea multe încercări. Așteaptă câteva minute.", errNet: "Nu ai internet.", errOther: "Nu a mers. Încearcă din nou."
 });
+
+/* prieteni (21 nov. 2026) */
+Object.assign(I18N.en, {
+  you: "You", socLogin: "Sign in to your account to have friends", socErr: "It did not work. Check the internet connection and try again.",
+  unameTitle: "Choose a username", unameNote: "Your friends find you by it. 3 to 20 letters, digits, dot, dash or underscore, no spaces.", unameSave: "Save the username",
+  unameBad: "The username needs 3 to 20 letters or digits, without spaces.", unameTaken: "The username {x} is taken. Choose another one.", unameSaved: "Your username is {x}.",
+  yourUsername: "Your username is {x}. Your friends find you by it.", addFriend: "Add a friend", friendUsername: "Your friend's username", sendRequest: "Send the friend request",
+  socNoUser: "Nobody has the username {x}.", socSelf: "That is your own username.", socAlready: "You are already friends with {x}.", socPending: "You already sent a request to {x}.",
+  socSent: "Request sent to {x}.", socAccepted: "Request accepted. You are friends now.", socRefused: "Request refused.", socCanceled: "Request canceled.", socRemoved: "Friend removed.", socNeedName: "Choose a username first, in the Profile tab.",
+  reqIn: "Requests received: {n}", reqOut: "Requests sent: {n}", wantsFriend: "{x} wants to be your friend", accept: "Accept", refuse: "Refuse", cancelReq: "Cancel the request",
+  yourFriends: "Your friends: {n}", noFriends: "You have no friends here yet. Send a request with their username.", removeFriend: "Remove this friend",
+  feedTitle: "News from friends", feedEmpty: "No news yet.", refresh: "Refresh", refreshed: "Refreshed.",
+  feedStart: "{n} started reading “{t}” by {a}.", feedProgress: "{n} reached {p}% of “{t}”.", feedDone: "{n} finished “{t}” by {a}.", feedWithRating: "Rating: {r} stars.",
+  feedReread: "{n} reread “{t}” by {a}.", feedDnf: "{n} left “{t}” unfinished.", feedRating: "{n} gave “{t}” {r} stars.", feedReview: "{n} wrote a review of “{t}”:",
+  likeN: "Like, {n}", liked: "You like it.", unliked: "Like removed.", commentsN: "Comments, {n}", comments: "Comments", writeComment: "Write a comment", sendComment: "Send the comment",
+  commentSent: "Comment sent.", commentDeleted: "Comment deleted.", deleteComment: "Delete the comment", noComments: "No comments yet.",
+  whoSees: "Who sees what I read", seeFriends: "My friends", seeNobody: "Nobody", shareFriends: "Your friends see what you read.", shareNobody: "Nobody sees what you read.",
+  friendHidden: "This friend keeps their reading private.", friendNothing: "Not reading anything right now.", friendChallenge: "{n} of {g} books in {y}"
+});
+Object.assign(I18N.ro, {
+  you: "Tu", socLogin: "Intră în cont ca să ai prieteni", socErr: "Nu a mers. Verifică internetul și încearcă din nou.",
+  unameTitle: "Alege-ți un nume de utilizator", unameNote: "După el te găsesc prietenii. Între 3 și 20 de litere, cifre, punct, cratimă sau liniuță jos, fără spații.", unameSave: "Salvează numele de utilizator",
+  unameBad: "Numele de utilizator trebuie să aibă între 3 și 20 de litere sau cifre, fără spații.", unameTaken: "Numele {x} e luat. Alege altul.", unameSaved: "Numele tău de utilizator e {x}.",
+  yourUsername: "Numele tău de utilizator e {x}. După el te găsesc prietenii.", addFriend: "Adaugă un prieten", friendUsername: "Numele de utilizator al prietenului", sendRequest: "Trimite cererea de prietenie",
+  socNoUser: "Nimeni nu are numele de utilizator {x}.", socSelf: "Ăsta e chiar numele tău.", socAlready: "Ești deja prieten cu {x}.", socPending: "I-ai trimis deja o cerere lui {x}.",
+  socSent: "Cerere trimisă lui {x}.", socAccepted: "Cerere acceptată. Acum sunteți prieteni.", socRefused: "Cerere refuzată.", socCanceled: "Cerere anulată.", socRemoved: "Prietenul a fost șters.", socNeedName: "Alege-ți întâi un nume de utilizator, în fila Profil.",
+  reqIn: "Cereri primite: {n}", reqOut: "Cereri trimise: {n}", wantsFriend: "{x} vrea să fie prietenul tău", accept: "Acceptă", refuse: "Refuză", cancelReq: "Anulează cererea",
+  yourFriends: "Prietenii tăi: {n}", noFriends: "Încă nu ai prieteni aici. Trimite o cerere cu numele lor de utilizator.", removeFriend: "Șterge acest prieten",
+  feedTitle: "Noutăți de la prieteni", feedEmpty: "Încă nu sunt noutăți.", refresh: "Reîmprospătează", refreshed: "Reîmprospătat.",
+  feedStart: "{n} a început să citească „{t}” de {a}.", feedProgress: "{n} a ajuns la {p}% din „{t}”.", feedDone: "{n} a terminat „{t}” de {a}.", feedWithRating: "Nota: {r} stele.",
+  feedReread: "{n} a recitit „{t}” de {a}.", feedDnf: "{n} a lăsat nefinalizată „{t}”.", feedRating: "{n} i-a dat „{t}” {r} stele.", feedReview: "{n} a scris o recenzie la „{t}”:",
+  likeN: "Îmi place, {n}", liked: "Îți place.", unliked: "Am scos aprecierea.", commentsN: "Comentarii, {n}", comments: "Comentarii", writeComment: "Scrie un comentariu", sendComment: "Trimite comentariul",
+  commentSent: "Comentariu trimis.", commentDeleted: "Comentariu șters.", deleteComment: "Șterge comentariul", noComments: "Încă nu sunt comentarii.",
+  whoSees: "Cine vede ce citesc", seeFriends: "Prietenii mei", seeNobody: "Nimeni", shareFriends: "Prietenii tăi văd ce citești.", shareNobody: "Nimeni nu vede ce citești.",
+  friendHidden: "Prietenul ăsta își ține lecturile doar pentru el.", friendNothing: "Nu citește nimic acum.", friendChallenge: "{n} din {g} cărți în {y}"
+});

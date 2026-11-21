@@ -215,7 +215,9 @@ function allReads() {
   S.books.forEach(b => { const r = [...(b.reads || [])].sort(); r.forEach((d, i) => { if (d) out.push({ b, date: d, n: i + 1 }); }); });
   return out;
 }
-function logEvent(b, type, extra) { S.events.push({ id: uid(), bookId: b.id, title: b.title, type, date: today(), ...extra }); if (S.events.length > 3000) S.events = S.events.slice(-3000); }
+function logEvent(b, type, extra) { S.events.push({ id: uid(), bookId: b.id, title: b.title, type, date: today(), ...extra }); if (S.events.length > 3000) S.events = S.events.slice(-3000);
+  const tip = { reading: 'start', read: 'gata', reread: 'reread', dnf: 'dnf' }[type]; if (tip && typeof socialPost === 'function') socialPost(b, tip, tip === 'gata' || tip === 'reread' ? { r: b.rating || 0 } : {});
+  if (type === 'session' && typeof socialProgress === 'function') socialProgress(b); }
 function logSession(b, pages, minutes, date) {
   pages = Math.max(0, +pages || 0); minutes = Math.max(0, +minutes || 0);
   if (!pages && !minutes) return;
@@ -551,8 +553,8 @@ function rangeLive(el) {
 }
 function rangeCommit(el) {
   const v = +el.value;
-  if (el.dataset.rater !== undefined) { const b = byId(el.dataset.rater || $('#sheets [data-edit]')?.dataset.edit); if (b) { b.rating = v; persist(); render(); } return; }
-  if (el.dataset.pctr !== undefined) { const b = byId($('#sheets [data-edit]')?.dataset.edit); if (!b) return; if (b.format !== 'audio' && b.pages) setPage(b, Math.round(v / 100 * b.pages)); else { b.pct = v; if (v > 0 && b.status === 'want') setStatus(b, 'reading'); b.lastTouch = Date.now(); persist(); } render(); return; }
+  if (el.dataset.rater !== undefined) { const b = byId(el.dataset.rater || $('#sheets [data-edit]')?.dataset.edit); if (b) { b.rating = v; persist(); render(); socialRating(b); } return; }
+  if (el.dataset.pctr !== undefined) { const b = byId($('#sheets [data-edit]')?.dataset.edit); if (!b) return; if (b.format !== 'audio' && b.pages) setPage(b, Math.round(v / 100 * b.pages)); else { b.pct = v; if (v > 0 && b.status === 'want') setStatus(b, 'reading'); b.lastTouch = Date.now(); persist(); } socialProgress(b); render(); return; }
   if (el.dataset.goalr !== undefined) { S.settings.goal = Math.max(1, v); persist(); const id = el.id; render(); setTimeout(() => document.getElementById(id)?.focus(), 30); return; }
 }
 document.addEventListener('input', e => {
@@ -572,7 +574,7 @@ screens.profile = () => {
   const read = S.books.filter(b => b.status === 'read');
   const want = S.books.filter(b => b.status === 'want').length;
   const last5 = [...read].sort((a, b) => String(b.dateFinished).localeCompare(String(a.dateFinished))).slice(0, 5);
-  const friends = (S.social.friends || []).length;
+  const friends = SOC.friends.length;
   const genres = (S.profile.genres || []).filter(g => GENRES[g]);
   let h = navHTML(t('tab_profile'), { act: `<button class="act" data-push="profile">${esc(t('edit'))}</button>` });
   h += `<div class="profhead"><span class="avatar" style="background:${color(name)}" aria-hidden="true">${esc(name[0].toUpperCase())}</span><div><div class="pname">${esc(name)}</div>${S.profile.bio ? `<div class="pbio">${esc(S.profile.bio)}</div>` : ''}</div></div>`;
@@ -584,6 +586,8 @@ screens.profile = () => {
   h += `<div class="label">${esc(t('favGenres'))}</div>`;
   h += genres.length ? `<div class="chips wrap" role="list" aria-label="${esc(t('favGenres'))}">${genres.map(g => `<span class="chip" role="listitem">${esc(genreName(g))}</span>`).join('')}</div>` : `<div class="foot" style="margin-top:0">${esc(t('noGenresYet'))}</div>`;
   h += `<div class="btns"><button class="btn plain" data-genrepick>${esc(t('chooseGenres'))}</button></div>`;
+  h += `<div id="socBox">${socialHTML()}</div>`;
+  if (!SOC.loading) setTimeout(refreshSocial, 50);
   return h;
 };
 
@@ -696,7 +700,7 @@ async function cloudUpload() {
   const at = Date.now();
   try {
     await fb.F.setDoc(cloudDoc(cloudUser.uid), { stare, actualizat: at, dispozitiv: DEV_ID });
-    syncMeta.at = at; saveSyncMeta(); cloudState = 'ok';
+    syncMeta.at = at; saveSyncMeta(); cloudState = 'ok'; publishProfileSoon();
   } catch (e) { cloudState = 'error'; }
   rerenderAccount();
 }
@@ -812,6 +816,183 @@ if (syncMeta.uid) setTimeout(() => fbLoad().catch(() => { cloudState = 'error'; 
 else setTimeout(() => { if (!syncMeta.uid && !$('#sheets').innerHTML) openSheet(accountSheet(), t('welcomeTitle')); }, 1200);
 // ce s-a schimbat fără internet se trimite când revine conexiunea
 window.addEventListener('online', () => { if (cloudUser && cloudReady) cloudUpload(); });
+
+/* ================= prieteni (21 nov. 2026) ================= */
+const SOC = { friends: [], incoming: [], outgoing: [], feed: [], loaded: false, loading: false, err: '' };
+function pairId(a, b) { return a < b ? a + '_' + b : b + '_' + a; }
+function myName() { return String(S.account.username || '').trim(); }
+function shareOn() { return S.settings.share !== 'nobody'; }
+async function socReady() { try { await fbLoad(); } catch (e) { return false; } return !!cloudUser; }
+let pubT = null;
+function publishProfileSoon() { clearTimeout(pubT); pubT = setTimeout(publishProfile, 3000); }
+async function publishProfile() {
+  if (!cloudUser || !myName() || !fb) return;
+  const yr = new Date().getFullYear();
+  const done = allReads().filter(r => String(r.date).startsWith(String(yr))).length;
+  const base = { nume: myName(), afisat: S.profile.name || myName(), at: Date.now() };
+  const data = shareOn()
+    ? { ...base, ascuns: false, citesc: S.books.filter(b => b.status === 'reading').slice(0, 10).map(b => ({ t: b.title, a: b.author || '', p: pct(b) })), provocare: { an: yr, n: done, obiectiv: S.settings.goal } }
+    : { ...base, ascuns: true, citesc: [], provocare: null };
+  try { await fb.F.setDoc(fb.F.doc(fb.db, 'profiluri', cloudUser.uid), data); } catch (e) {}
+}
+function socialPost(b, tip, extra) {
+  if (!cloudUser || !fb || !myName() || !shareOn() || !b) return;
+  const at = Date.now(), id = String(9e12 - at).padStart(13, '0') + '_' + cloudUser.uid.slice(0, 8);
+  const d = Object.assign({ uid: cloudUser.uid, nume: myName(), afisat: S.profile.name || myName(), tip, t: b.title || '', a: b.author || '', at, likes: [], nc: 0 }, extra || {});
+  fb.F.setDoc(fb.F.doc(fb.db, 'noutati', id), d).catch(() => {});
+}
+function socialProgress(b) {
+  const p = pct(b); if (!b || b.status !== 'reading' || !p || p >= 100) return;
+  S.social.lp = S.social.lp || {}; const lp = S.social.lp[b.id] || { p: 0, at: 0 };
+  if (p - lp.p < 10 && Date.now() - lp.at < 12 * 3600e3) return;
+  S.social.lp[b.id] = { p, at: Date.now() }; socialPost(b, 'progres', { p });
+}
+let rateT = null;
+function socialRating(b) { clearTimeout(rateT); rateT = setTimeout(() => { if (b.rating) socialPost(b, 'nota', { r: b.rating }); }, 5000); }
+function postText(d) {
+  const n = d.uid === (cloudUser && cloudUser.uid) ? t('you') : (d.afisat || d.nume);
+  const k = { start: 'feedStart', progres: 'feedProgress', gata: 'feedDone', reread: 'feedReread', dnf: 'feedDnf', nota: 'feedRating', recenzie: 'feedReview' }[d.tip] || 'feedStart';
+  let s = t(k, { n, t: d.t, a: d.a || '?', p: d.p, r: d.r });
+  if (d.tip === 'gata' && d.r) s += ' ' + t('feedWithRating', { r: d.r });
+  if (d.tip === 'recenzie' && d.x) s += ' ' + d.x;
+  return s;
+}
+function agoText(at) {
+  const sec = Math.round((at - Date.now()) / 1000), rtf = new Intl.RelativeTimeFormat(L(), { numeric: 'auto' });
+  const a = Math.abs(sec);
+  if (a < 60) return rtf.format(0, 'second'); if (a < 3600) return rtf.format(Math.round(sec / 60), 'minute');
+  if (a < 86400) return rtf.format(Math.round(sec / 3600), 'hour'); if (a < 86400 * 30) return rtf.format(Math.round(sec / 86400), 'day');
+  return new Date(at).toLocaleDateString(L());
+}
+async function socLoad() {
+  if (SOC.loading) return; SOC.loading = true; SOC.err = '';
+  try {
+    if (!(await socReady())) { SOC.loaded = true; return; }
+    const F = fb.F, me = cloudUser.uid;
+    const qs = await F.getDocs(F.query(F.collection(fb.db, 'prietenii'), F.where('membri', 'array-contains', me)));
+    const fr = [], inc = [], out = [];
+    qs.forEach(sn => { const d = sn.data(); const other = d.de === me ? d.catre : d.de; const item = { id: sn.id, uid: other, nume: d.de === me ? d.catreNume : d.deNume }; if (d.status === 'acceptat') fr.push(item); else if (d.catre === me) inc.push(item); else out.push(item); });
+    await Promise.all(fr.map(async f => { try { const p = await F.getDoc(F.doc(fb.db, 'profiluri', f.uid)); if (p.exists()) { f.profil = p.data(); f.nume = f.profil.nume || f.nume; f.afisat = f.profil.afisat; } } catch (e) {} }));
+    const feed = [];
+    await Promise.all([...fr.map(f => f.uid), me].map(async u => { try { const r = await F.getDocs(F.query(F.collection(fb.db, 'noutati'), F.where('uid', '==', u), F.limit(15))); r.forEach(sn => feed.push(Object.assign({ id: sn.id }, sn.data()))); } catch (e) {} }));
+    feed.sort((a, b) => b.at - a.at);
+    Object.assign(SOC, { friends: fr, incoming: inc, outgoing: out, feed: feed.slice(0, 50), loaded: true });
+  } catch (e) { SOC.err = t('socErr'); }
+  finally { SOC.loading = false; }
+}
+function friendLabel(f) { return f.afisat && f.afisat !== f.nume ? `${f.afisat} (${f.nume})` : (f.nume || '?'); }
+function postHTML(d) {
+  const me = cloudUser && cloudUser.uid, liked = (d.likes || []).includes(me), nl = (d.likes || []).length, nc = d.nc || 0;
+  return `<div role="listitem" class="cell" style="display:block"><p style="margin:0 0 4px">${esc(postText(d))} <span class="sub">${esc(agoText(d.at))}</span></p>
+   <div class="btns" style="margin:4px 0 0"><button class="btn plain" data-like="${esc(d.id)}" aria-pressed="${liked}">${esc(t('likeN', { n: nl }))}</button><button class="btn plain" data-comments="${esc(d.id)}">${esc(t('commentsN', { n: nc }))}</button></div></div>`;
+}
+function socialHTML() {
+  if (!cloudUser && !(syncMeta.uid)) return `<div class="label">${esc(t('friends'))}</div><div class="group">${cell({ attrs: 'data-push="account"', ico: 'person', icoColor: '#2B7BE4', label: t('socLogin') })}</div>`;
+  if (!SOC.loaded) return `<div class="label">${esc(t('friends'))}</div><div class="spin" role="status">${esc(t('loading'))}</div>`;
+  let h = '';
+  if (SOC.err) h += `<p role="alert" class="err">${esc(SOC.err)}</p>`;
+  if (!myName()) {
+    h += `<div class="label">${esc(t('unameTitle'))}</div><form id="unameForm"><div class="group"><div class="field"><label for="u-name">${esc(t('username'))}</label><input id="u-name" name="u" autocapitalize="off" autocomplete="username"></div></div><div class="foot">${esc(t('unameNote'))}</div><p id="unameErr" role="alert" class="err"></p><div class="btns"><button class="btn primary" type="submit">${esc(t('unameSave'))}</button></div></form>`;
+    return h;
+  }
+  h += `<div class="foot">${esc(t('yourUsername', { x: myName() }))}</div>`;
+  h += `<div class="label">${esc(t('addFriend'))}</div><form id="friendForm"><div class="group"><div class="field"><label for="f-name">${esc(t('friendUsername'))}</label><input id="f-name" name="u" autocapitalize="off"></div></div><p id="friendErr" role="alert" class="err"></p><div class="btns"><button class="btn primary" type="submit">${esc(t('sendRequest'))}</button></div></form>`;
+  if (SOC.incoming.length) h += `<div class="label">${esc(t('reqIn', { n: SOC.incoming.length }))}</div><div class="group" role="list">${SOC.incoming.map(r => `<div role="listitem" class="cell" style="display:block"><p style="margin:0">${esc(t('wantsFriend', { x: r.nume }))}</p><div class="btns" style="margin:4px 0 0"><button class="btn primary" data-accept="${esc(r.id)}">${esc(t('accept'))}</button><button class="btn plain" data-unfriend="${esc(r.id)}" data-msg="refused">${esc(t('refuse'))}</button></div></div>`).join('')}</div>`;
+  if (SOC.outgoing.length) h += `<div class="label">${esc(t('reqOut', { n: SOC.outgoing.length }))}</div><div class="group" role="list">${SOC.outgoing.map(r => `<div role="listitem" class="cell"><span class="grow">${esc(r.nume)}</span><button class="btn plain" data-unfriend="${esc(r.id)}" data-msg="canceled">${esc(t('cancelReq'))}</button></div>`).join('')}</div>`;
+  h += `<div class="label">${esc(t('yourFriends', { n: SOC.friends.length }))}</div>` + (SOC.friends.length ? `<div class="group" role="list">${SOC.friends.map(f => `<div role="listitem">${cell({ attrs: `data-friend="${esc(f.uid)}"`, ico: 'person', icoColor: '#2B7BE4', label: friendLabel(f) })}</div>`).join('')}</div>` : `<div class="foot">${esc(t('noFriends'))}</div>`);
+  h += `<div class="label">${esc(t('feedTitle'))}</div>` + (SOC.feed.length ? `<div class="group" role="list" aria-label="${esc(t('feedTitle'))}">${SOC.feed.map(postHTML).join('')}</div>` : `<div class="foot">${esc(t('feedEmpty'))}</div>`);
+  h += `<div class="label">${esc(t('whoSees'))}</div><div class="group" role="radiogroup" aria-label="${esc(t('whoSees'))}">${[['friends', 'seeFriends'], ['nobody', 'seeNobody']].map(([k, v]) => `<label class="cell" style="cursor:pointer"><span class="grow">${esc(t(v))}</span><input type="radio" name="share" value="${k}" ${(S.settings.share || 'friends') === k ? 'checked' : ''}></label>`).join('')}</div>`;
+  h += `<div class="btns"><button class="btn plain" data-socrefresh>${esc(t('refresh'))}</button></div>`;
+  return h;
+}
+async function refreshSocial() { await socLoad(); renderPart('#socBox', socialHTML()); }
+async function setUsername(raw) {
+  const n = String(raw || '').trim().replace(/^@/, ''), low = n.toLowerCase(), err = m => { const e = $('#unameErr'); if (e) e.textContent = m; else toast(m); };
+  if (!/^[a-z0-9._-]{3,20}$/i.test(n)) { err(t('unameBad')); return; }
+  if (!(await socReady())) { err(t('socLogin')); return; }
+  const F = fb.F, ref = F.doc(fb.db, 'nume', low);
+  try {
+    const sn = await F.getDoc(ref);
+    if (sn.exists() && sn.data().uid !== cloudUser.uid) { err(t('unameTaken', { x: n })); return; }
+    if (!sn.exists()) await F.setDoc(ref, { uid: cloudUser.uid, nume: n });
+    const old = myName().toLowerCase(); if (old && old !== low) { try { await F.deleteDoc(F.doc(fb.db, 'nume', old)); } catch (e) {} }
+    S.account.username = n; persist(); await publishProfile(); toast(t('unameSaved', { x: n })); refreshSocial();
+  } catch (e) { err(t('socErr')); }
+}
+async function sendRequest(raw) {
+  const low = String(raw || '').trim().replace(/^@/, '').toLowerCase(), err = m => { const e = $('#friendErr'); if (e) e.textContent = m; else toast(m); };
+  if (!low) { err(t('friendUsername')); return; }
+  if (!(await socReady())) { err(t('socLogin')); return; }
+  const F = fb.F, me = cloudUser.uid;
+  try {
+    const sn = await F.getDoc(F.doc(fb.db, 'nume', low));
+    if (!sn.exists()) { err(t('socNoUser', { x: raw })); return; }
+    const other = sn.data().uid, otherName = sn.data().nume || raw;
+    if (other === me) { err(t('socSelf')); return; }
+    const id = pairId(me, other), ref = F.doc(fb.db, 'prietenii', id), ex = await F.getDoc(ref);
+    if (ex.exists()) { const d = ex.data(); if (d.status === 'acceptat') err(t('socAlready', { x: otherName })); else if (d.catre === me) { await acceptRequest(id); } else err(t('socPending', { x: otherName })); return; }
+    await F.setDoc(ref, { membri: [me, other], de: me, catre: other, deNume: myName(), catreNume: otherName, status: 'cerere', at: Date.now() });
+    toast(t('socSent', { x: otherName })); refreshSocial();
+  } catch (e) { err(t('socErr')); }
+}
+async function acceptRequest(id) { try { await fbLoad(); await fb.F.updateDoc(fb.F.doc(fb.db, 'prietenii', id), { status: 'acceptat', at: Date.now() }); publishProfile(); toast(t('socAccepted')); } catch (e) { toast(t('socErr')); } refreshSocial(); }
+async function removeFriendship(id, msg) { try { await fbLoad(); await fb.F.deleteDoc(fb.F.doc(fb.db, 'prietenii', id)); toast(t(msg === 'refused' ? 'socRefused' : msg === 'canceled' ? 'socCanceled' : 'socRemoved')); } catch (e) { toast(t('socErr')); } if (msg === 'removed') pop(); refreshSocial(); }
+async function toggleLike(id, btn) {
+  const d = SOC.feed.find(x => x.id === id); if (!d || !cloudUser) return;
+  const me = cloudUser.uid, liked = (d.likes || []).includes(me);
+  d.likes = liked ? d.likes.filter(x => x !== me) : [...(d.likes || []), me];
+  if (btn) { btn.setAttribute('aria-pressed', String(!liked)); btn.textContent = t('likeN', { n: d.likes.length }); }
+  say(t(liked ? 'unliked' : 'liked'));
+  try { await fb.F.updateDoc(fb.F.doc(fb.db, 'noutati', id), { likes: liked ? fb.F.arrayRemove(me) : fb.F.arrayUnion(me) }); } catch (e) { toast(t('socErr')); }
+}
+let openPost = null;
+async function openComments(id) {
+  const d = SOC.feed.find(x => x.id === id); if (!d) return; openPost = d;
+  openSheet(`${sheetHead(t('comments'))}<p>${esc(postText(d))}</p><div id="comBox"><div class="spin" role="status">${esc(t('loading'))}</div></div>
+   <form id="commentForm"><div class="group"><div class="field"><label for="c-text">${esc(t('writeComment'))}</label><textarea id="c-text" name="c"></textarea></div></div><div class="btns"><button class="btn primary" type="submit">${esc(t('sendComment'))}</button></div></form>`, t('comments'));
+  loadComments();
+}
+async function loadComments() {
+  const d = openPost; if (!d) return;
+  try {
+    const r = await fb.F.getDocs(fb.F.query(fb.F.collection(fb.db, 'noutati', d.id, 'comentarii'), fb.F.limit(200)));
+    const list = []; r.forEach(sn => list.push(Object.assign({ id: sn.id }, sn.data())));
+    list.sort((a, b) => a.at - b.at);
+    const me = cloudUser && cloudUser.uid;
+    renderPart('#comBox', list.length ? `<div class="group" role="list" aria-label="${esc(t('comments'))}">${list.map(c => `<div role="listitem" class="cell" style="display:block"><p style="margin:0">${esc((c.uid === me ? t('you') : c.nume) + ': ' + c.text)} <span class="sub">${esc(agoText(c.at))}</span></p>${c.uid === me || d.uid === me ? `<div class="btns" style="margin:4px 0 0"><button class="btn plain" data-delcomment="${esc(c.id)}">${esc(t('deleteComment'))}</button></div>` : ''}</div>`).join('')}</div>` : `<div class="foot">${esc(t('noComments'))}</div>`);
+    d.nc = list.length;
+  } catch (e) { renderPart('#comBox', `<p role="alert" class="err">${esc(t('socErr'))}</p>`); }
+}
+async function sendComment(text) {
+  const d = openPost; text = String(text || '').trim(); if (!d || !text) return;
+  if (!myName()) { toast(t('socNeedName')); return; }
+  const at = Date.now(), cid = String(at) + '_' + cloudUser.uid.slice(0, 8);
+  try {
+    await fb.F.setDoc(fb.F.doc(fb.db, 'noutati', d.id, 'comentarii', cid), { uid: cloudUser.uid, nume: myName(), text: text.slice(0, 1000), at });
+    await fb.F.updateDoc(fb.F.doc(fb.db, 'noutati', d.id), { nc: fb.F.increment(1) }).catch(() => {});
+    const ta = $('#c-text'); if (ta) ta.value = '';
+    toast(t('commentSent')); await loadComments(); $('#c-text')?.focus();
+  } catch (e) { toast(t('socErr')); }
+}
+async function deleteComment(cid) {
+  const d = openPost; if (!d) return;
+  try { await fb.F.deleteDoc(fb.F.doc(fb.db, 'noutati', d.id, 'comentarii', cid)); await fb.F.updateDoc(fb.F.doc(fb.db, 'noutati', d.id), { nc: fb.F.increment(-1) }).catch(() => {}); toast(t('commentDeleted')); loadComments(); } catch (e) { toast(t('socErr')); }
+}
+pages.friend = uid => {
+  const f = SOC.friends.find(x => x.uid === uid) || { nume: '?' };
+  const p = f.profil || {};
+  let h = `${navHTML(friendLabel(f), { back: backLabel() })}`;
+  if (p.ascuns) h += `<div class="foot">${esc(t('friendHidden'))}</div>`;
+  else {
+    h += `<div class="label">${esc(STATUS('reading'))}</div>` + ((p.citesc || []).length ? `<div class="group" role="list">${p.citesc.map(c => `<div role="listitem" class="cell"><span class="grow">${esc(`${c.t}${c.a ? ', ' + c.a : ''}`)}</span><span class="sub">${esc(c.p ? c.p + '%' : '')}</span></div>`).join('')}</div>` : `<div class="foot">${esc(t('friendNothing'))}</div>`);
+    if (p.provocare) h += `<div class="label">${esc(t('yearlyGoal'))}</div><div class="group"><div class="cell"><span class="grow">${esc(t('friendChallenge', { n: p.provocare.n, g: p.provocare.obiectiv, y: p.provocare.an }))}</span></div></div>`;
+  }
+  const posts = SOC.feed.filter(x => x.uid === uid);
+  h += `<div class="label">${esc(t('feedTitle'))}</div>` + (posts.length ? `<div class="group" role="list">${posts.map(postHTML).join('')}</div>` : `<div class="foot">${esc(t('feedEmpty'))}</div>`);
+  const fr = SOC.friends.find(x => x.uid === uid);
+  if (fr) h += `<div class="btns"><button class="btn plain" data-unfriend="${esc(fr.id)}" data-msg="removed">${esc(t('removeFriend'))}</button></div>`;
+  return h;
+};
 
 /* ================= navigation ================= */
 function current() { const st = stack[tab]; return st[st.length - 1]; }
@@ -1131,7 +1312,14 @@ document.addEventListener('click', e => {
   if (d.genre) { const i = +d.genre; if (discoverState.genre === i) { discoverState = { genre: null, results: null }; render(); return; } discoverState = { genre: i, results: null }; render(); $(`[data-genre="${i}"]`)?.focus(); catalog(DISCOVER[i][1], { max: 30 }).then(r => { if (discoverState.genre !== i) return; discoverState.results = r; renderPart('#genreBox', r.length ? `<div class="group" role="list">${r.map(c => `<div role="listitem">${candRowHTML(c)}</div>`).join('')}</div>` : emptyHTML(t('nothingFound'), t('tryOtherGenre'))); say(`${genreName(DISCOVER[i][0])}: ${tn(r.length, 'book')}`); }); return; }
   if (d.author) { closeSheet(true); push('author', d.author, d.author); return; }
   if ('genrepick' in d) { openSheet(genreSheet(), t('favGenres')); return; }
-  if ('friends' in d) { toast(t('friendsSoon')); return; }
+  if ('friends' in d) { $('#socBox')?.scrollIntoView(); ($('#socBox input') || $('#socBox button'))?.focus(); return; }
+  if (d.friend) { push('friend', d.friend, friendLabel(SOC.friends.find(x => x.uid === d.friend) || {})); return; }
+  if (d.accept) { acceptRequest(d.accept); return; }
+  if (d.unfriend) { removeFriendship(d.unfriend, d.msg || 'removed'); return; }
+  if (d.like) { toggleLike(d.like, el); return; }
+  if (d.comments) { openComments(d.comments); return; }
+  if (d.delcomment) { deleteComment(d.delcomment); return; }
+  if ('socrefresh' in d) { renderPart('#socBox', `<div class="spin" role="status">${esc(t('loading'))}</div>`); refreshSocial().then(() => say(t('refreshed'))); return; }
   if ('export' in d) { exportBackup(); return; }
   if ('askwipe' in d) { $('#wipeBox').innerHTML = `<div class="confirm" style="margin-top:12px" role="group" aria-label="${esc(t('confirmWipe'))}"><div>${esc(t('confirmWipeQ'))}</div><button class="btn danger" style="background:var(--accent-soft)" data-wipe>${esc(t('yesDeleteAll'))}</button><button class="btn plain" data-nowipe>${esc(t('no'))}</button></div>`; $('[data-wipe]').focus(); return; }
   if ('nowipe' in d) { $('#wipeBox').innerHTML = ''; return; }
@@ -1157,6 +1345,7 @@ function doAction(act, bid, ckey) {
 let sheetBook = null;
 document.addEventListener('change', e => {
   const el = e.target;
+  if (el.name === 'share') { S.settings.share = el.value; persist(); publishProfile(); toast(t(el.value === 'nobody' ? 'shareNobody' : 'shareFriends')); return; }
   if (el.name === 'bstatus') {
     const b = byId($('#sheets [data-edit]')?.dataset.edit); if (!b) return;
     if (el.value === 'read') { markRead(b, () => openSheet(bookSheet(b), b.title)); render(); return; }
@@ -1180,7 +1369,8 @@ document.addEventListener('submit', e => {
     const id = f.dataset.id; let b = id ? byId(id) : null;
     const vals = { title, author: String(fd.get('author') || '').trim(), format: fd.get('format') || 'print', genre: String(fd.get('genre') || ''), pages: +fd.get('pages') || 0, page: +fd.get('page') || 0, review: String(fd.get('review') || '').trim(), dateFinished: String(fd.get('dateFinished') || '') };
     if (b) {
-      const oldFin = b.dateFinished; Object.assign(b, vals); b.reads = b.reads || [];
+      const oldFin = b.dateFinished, oldRev = b.review || ''; Object.assign(b, vals); b.reads = b.reads || [];
+      if (vals.review && vals.review !== oldRev) socialPost(b, 'recenzie', { x: vals.review.slice(0, 500) });
       if (b.status === 'read' && vals.dateFinished !== oldFin) {   // the edited date is the latest reading
         const i = b.reads.lastIndexOf(oldFin);
         if (vals.dateFinished) { if (i >= 0) b.reads[i] = vals.dateFinished; else b.reads.push(vals.dateFinished); } else if (i >= 0) b.reads.splice(i, 1);
@@ -1211,12 +1401,15 @@ document.addEventListener('submit', e => {
       if (b.pages) delete b.pct; else if (p != null) b.pct = p;
     }
     if (pct(b) > 0 && b.status === 'want') setStatus(b, 'reading');
-    b.lastTouch = Date.now(); persist(); closeSheet(true); render(); toast(t('progressSaved') + '. ' + t(audio ? 'listenedPct' : 'pctRead', { p: pct(b) })); setTimeout(() => $(`#app [data-book="${CSS.escape(b.id)}"]`)?.focus(), 60); return;
+    socialProgress(b); b.lastTouch = Date.now(); persist(); closeSheet(true); render(); toast(t('progressSaved') + '. ' + t(audio ? 'listenedPct' : 'pctRead', { p: pct(b) })); setTimeout(() => $(`#app [data-book="${CSS.escape(b.id)}"]`)?.focus(), 60); return;
   }
   if (f.id === 'sessionForm') { const b = byId(f.dataset.id); if (!b) return; const p = +fd.get('pages') || 0, m = +fd.get('minutes') || 0; if (!p && !m) { toast(t('writePagesOrMinutes')); return; } logSession(b, p, m, String(fd.get('date') || today())); b.lastTouch = Date.now(); persist(); closeSheet(true); openSheet(bookSheet(b), b.title); toast(t('sessionSaved')); render(); return; }
   if (f.id === 'listForm') { const name = String(fd.get('name') || '').trim(); if (!name) { $('#listErr').textContent = t('writeListName'); return; } const id = f.dataset.id; if (id) { listById(id).name = name; const top = current(); if (top && top.name === 'list') top.title = name; } else S.lists.push({ id: uid(), name }); persist(); closeSheet(true); render(); toast(id ? t('listRenamed') : t('listCreated', { x: name })); if (sheetBook && !id) { const b = byId(sheetBook); if (b) openSheet(pickListsSheet(b), t('lists')); } return; }
   if (f.id === 'profileForm') { S.profile.name = String(fd.get('name') || '').trim(); S.profile.bio = String(fd.get('bio') || '').trim(); persist(); toast(t('profileSaved')); return; }
   if (f.id === 'accountForm') { S.account.username = String(fd.get('username') || '').trim(); persist(); toast(t('accountSaved')); return; }
+  if (f.id === 'unameForm') { setUsername(fd.get('u')); return; }
+  if (f.id === 'friendForm') { sendRequest(fd.get('u')); return; }
+  if (f.id === 'commentForm') { sendComment(fd.get('c')); return; }
   if (f.id === 'loginForm') { const mode = (e.submitter && e.submitter.value) || 'login'; doLogin(mode, String(fd.get('email') || '').trim(), String(fd.get('pass') || '')); return; }
 });
 function exportBackup() {
