@@ -819,7 +819,7 @@ function backLabel() { const st = stack[tab]; if (st.length < 2) return t('tab_'
 function push(name, arg, title) { stack[tab].push({ name, arg, title }); render(true); }
 function pop() { stack[tab].pop(); render(true); }
 function renderTabs() {
-  document.querySelectorAll('.tab').forEach(el => { el.setAttribute('aria-selected', String(el.dataset.tab === tab)); const lb = el.querySelector('.tl'); if (lb) lb.textContent = t('tab_' + el.dataset.tab); });
+  document.querySelectorAll('.tab').forEach(el => { el.setAttribute('aria-selected', String(el.dataset.tab === tab)); el.tabIndex = el.dataset.tab === tab ? 0 : -1; const lb = el.querySelector('.tl'); if (lb) lb.textContent = t('tab_' + el.dataset.tab); });
   const nav = $('.tabbar'); if (nav) nav.setAttribute('aria-label', t('mainMenu'));
 }
 function render(focusTitle) {
@@ -839,9 +839,11 @@ async function loadAuthor(a) {
   r = [...vx.filter(c => !seen.has(norm(c.title))), ...r];
   renderPart('#authBox', r.length ? `<div class="group" role="list">${r.map(c => `<div role="listitem">${candRowHTML(c)}</div>`).join('')}</div>` : emptyHTML(t('nothingFound'), t('checkInternet')));
 }
-function goTab(tb) {
+function goTab(tb, keepTabFocus) {
   if (tab === tb && stack[tb].length) stack[tb] = [];
-  tab = tb; render(true);
+  tab = tb;
+  if (keepTabFocus) { render(false); window.scrollTo(0, 0); $(`.tab[data-tab="${tb}"]`)?.focus(); return; }
+  render(true);
   if (tb === 'search') setTimeout(() => { if (!searchState.results) $('#q')?.focus(); }, 60);
 }
 
@@ -920,6 +922,8 @@ function actionSheet(kind, key) {
 /* iPhone/iPad (VoiceOver): menus are adjustable, swipe up/down picks an option. Elsewhere (Windows with NVDA, keyboard, mouse)
    the same elements stay plain buttons; the menu opens with Shift+F10, the Applications key or right click. */
 const SWIPE_MENUS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+// pe calculator, rândul cu file e primul în ordinea Tab (vizual rămâne jos), ca într-un program Windows
+if (!SWIPE_MENUS) { const nav = document.querySelector('.tabbar'), app = document.getElementById('app'); if (nav && app) app.parentNode.insertBefore(nav, app); document.getElementById('tabs')?.setAttribute('aria-orientation', 'horizontal'); }
 const menuTarget = el => el && el.closest ? el.closest('[data-book],[data-cand],[data-openlist]') : null;
 function listOpts(l) { return l ? [['open', t('act_openList')], ['addbooks', t('addToListTitle')], ['rename', t('renameList')], ['dellist', t('deleteList')]] : []; }
 function adjOpts(it) {
@@ -1241,7 +1245,14 @@ document.addEventListener('keydown', e => {
     if (f.length) { const i = f.indexOf(document.activeElement); if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); } else if (!e.shiftKey && (i === f.length - 1 || i < 0)) { e.preventDefault(); f[0].focus(); } }
   }
   const el = e.target;
-  if (el.getAttribute && el.getAttribute('role') === 'tab' && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { const tabs = [...el.parentElement.querySelectorAll('[role=tab]')]; const i = tabs.indexOf(el); const n = tabs[(i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length]; n.focus(); n.click(); }
+  if (el.getAttribute && el.getAttribute('role') === 'tab' && ['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) {
+    e.preventDefault();
+    const tabs = [...el.parentElement.querySelectorAll('[role=tab]')]; const i = tabs.indexOf(el);
+    const j = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    const n = tabs[j];
+    if (n.dataset.tab && el.closest('.tabbar')) goTab(n.dataset.tab, true); else { n.focus(); n.click(); }
+    return;
+  }
   if (el.dataset && el.dataset.ai !== undefined && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) { e.preventDefault(); adjStep(el, e.key === 'ArrowDown' || e.key === 'ArrowLeft' ? 1 : -1); return; }
   if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { const it = menuTarget(el); if (it) { e.preventDefault(); openActionsFor(it); } }
 });
