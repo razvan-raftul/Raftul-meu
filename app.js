@@ -32,7 +32,8 @@ try { const d = JSON.parse(localStorage.getItem(KEY) || 'null'); if (d) { S = Ob
 /* rereads: every finished reading of a book is kept in b.reads (dates); b.dateFinished is the latest one */
 function migrateReads() { S.books.forEach(b => { if (!Array.isArray(b.reads)) b.reads = (b.status === 'read' && b.dateFinished) ? [b.dateFinished] : []; }); }
 migrateReads();
-function persist() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast(t('saveFail')); } }
+function saveSyncMetaSafe() { try { if (typeof syncMeta !== 'undefined' && syncMeta.uid) localStorage.setItem('regatul-sync', JSON.stringify(syncMeta)); } catch (e) {} }
+function persist() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast(t('saveFail')); } if (typeof syncMeta === 'object' && syncMeta) { syncMeta.dirty = Date.now(); saveSyncMetaSafe(); cloudSchedule(); } }
 
 let tab = 'home';
 let stack = { home: [], library: [], discover: [], search: [], profile: [], more: [] };
@@ -608,13 +609,28 @@ pages.profile = () => `${navHTML(t('editProfile'), { back: backLabel() })}
    <div class="field"><label for="p-bio">${esc(t('aboutMe'))}</label><textarea id="p-bio" name="bio">${esc(S.profile.bio)}</textarea></div>
   </div><div class="foot">${esc(t('publicNote'))}</div>
   <div class="btns"><button class="btn primary" type="submit">${esc(t('saveProfile'))}</button><button class="btn plain" type="button" data-genrepick>${esc(t('chooseGenres'))}</button></div></form>`;
-pages.account = () => `${navHTML(t('account'), { back: backLabel() })}
-  <form id="accountForm"><div class="group">
+pages.account = () => {
+  const logged = cloudUser || (syncMeta.uid && syncMeta.email);
+  let h = `${navHTML(t('account'), { back: backLabel() })}`;
+  if (logged) {
+    h += `<div class="group"><div class="cell"><span class="grow">${esc(t('signedInAs', { x: (cloudUser && cloudUser.email) || syncMeta.email }))}</span></div><div class="cell"><span class="grow" id="syncSt">${esc(syncStatusText())}</span></div></div>
+    <div class="foot">${esc(t('cloudNote'))}</div>
+    <div class="btns"><button class="btn primary" type="button" data-syncnow>${esc(t('syncNow'))}</button><button class="btn plain" type="button" data-logout>${esc(t('signOut'))}</button></div>`;
+  } else {
+    h += `<p class="foot">${esc(t('cloudIntro'))}</p>
+    <form id="loginForm"><div class="group">
+     <div class="field"><label for="l-mail">${esc(t('email'))}</label><input id="l-mail" name="email" type="email" autocomplete="email" autocapitalize="off" value="${esc(S.account.email || '')}"></div>
+     <div class="field"><label for="l-pass">${esc(t('password'))}</label><input id="l-pass" name="pass" type="password" autocomplete="current-password"></div>
+    </div><div class="foot">${esc(t('passwordNote'))}</div>
+    <p id="authErr" role="alert" class="err"></p>
+    <div class="btns"><button class="btn primary" type="submit" name="mode" value="login">${esc(t('signIn'))}</button><button class="btn plain" type="submit" name="mode" value="signup">${esc(t('signUp'))}</button><button class="btn plain" type="submit" name="mode" value="reset">${esc(t('forgotPass'))}</button></div></form>`;
+  }
+  h += `<div class="label">${esc(t('username'))}</div><form id="accountForm"><div class="group">
    <div class="field"><label for="a-user">${esc(t('username'))}</label><input id="a-user" name="username" value="${esc(S.account.username)}" autocapitalize="off"></div>
-   <div class="field"><label for="a-mail">${esc(t('email'))}</label><input id="a-mail" name="email" type="email" value="${esc(S.account.email)}" autocomplete="email"></div>
-  </div><div class="foot">${esc(t('localOnlyNote'))}</div>
-  <div class="btns"><button class="btn primary" type="submit">${esc(t('saveAccount'))}</button></div></form>
+  </div><div class="btns"><button class="btn plain" type="submit">${esc(t('saveAccount'))}</button></div></form>
   <div class="label">${esc(t('dangerZone'))}</div><div class="group">${cell({ attrs: 'data-askwipe', ico: 'trash', icoColor: '#D23B33', label: t('deleteAll'), chev: false })}</div><div id="wipeBox"></div>`;
+  return h;
+};
 pages.settings = () => `${navHTML(t('settings'), { back: backLabel() })}
   <div class="group"><fieldset class="field"><legend>${esc(t('appearance'))}</legend><div class="seg">${[['auto', 'themeAuto'], ['light', 'themeLight'], ['dark', 'themeDark']].map(([k, v]) => `<label>${esc(t(v))}<input type="radio" name="theme" value="${k}" ${S.settings.theme === k ? 'checked' : ''}></label>`).join('')}</div></fieldset></div>
   <div class="label">${esc(t('catalog'))}</div><div class="group"><label class="cell" style="cursor:pointer"><span class="grow">${esc(t('roFirst'))}</span><span class="toggle"><input type="checkbox" id="onlyRo" ${S.settings.onlyRo ? 'checked' : ''}><span></span></span></label></div>
@@ -647,6 +663,140 @@ pages.list = id => {
   <div class="btns"><button class="btn plain" data-addtolist="${esc(id)}">${esc(t('addBooksToList'))}</button></div>`;
 };
 pages.author = a => `${navHTML(a, { back: backLabel() })}<div id="authBox"><div class="spin" role="status">${esc(t('loading'))}</div></div>`;
+
+
+/* ================= cont și sincronizare (Firebase) ================= */
+const FB_CFG = { apiKey: "AIzaSyB_URkCo9yqumDuyvXwSVmc6iRsUlYZm9o", authDomain: "regatul-cartilor.firebaseapp.com", projectId: "regatul-cartilor", storageBucket: "regatul-cartilor.firebasestorage.app", messagingSenderId: "272997137762", appId: "1:272997137762:web:2e97f1fbd5167ae821403b" };
+const SYNC_KEY = 'regatul-sync';
+const DEV_ID = (() => { try { let d = localStorage.getItem('regatul-dispozitiv'); if (!d) { d = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('regatul-dispozitiv', d); } return d; } catch (e) { return 'x' + Date.now(); } })();
+var syncMeta = (() => { try { return JSON.parse(localStorage.getItem(SYNC_KEY) || '{}') || {}; } catch (e) { return {}; } })();
+function saveSyncMeta() { try { localStorage.setItem(SYNC_KEY, JSON.stringify(syncMeta)); } catch (e) {} }
+var fb = null, cloudUser = null, cloudReady = false, cloudUnsub = null, cloudTimer = null, cloudApplying = false, cloudPendingRemote = null;
+var cloudState = 'off';   // off | working | ok | error
+async function fbLoad() {
+  if (fb) return fb;
+  const base = 'https://www.gstatic.com/firebasejs/10.12.2/';
+  const [app, auth, fs] = await Promise.all([import(base + 'firebase-app.js'), import(base + 'firebase-auth.js'), import(base + 'firebase-firestore.js')]);
+  const a = app.initializeApp(FB_CFG);
+  fb = { auth: auth.getAuth(a), db: fs.getFirestore(a), A: auth, F: fs };
+  fb.A.onAuthStateChanged(fb.auth, u => { cloudUser = u; if (u) cloudStart(u); else cloudStop(); rerenderAccount(); });
+  return fb;
+}
+function rerenderAccount() { const top = current(); if (top && top.name === 'account') render(); }
+function cloudDoc(uid) { return fb.F.doc(fb.db, 'utilizatori', uid); }
+function cloudPayload() { return JSON.stringify(S); }
+function cloudSchedule() {
+  if (!cloudUser || !cloudReady || cloudApplying) return;
+  clearTimeout(cloudTimer); cloudTimer = setTimeout(cloudUpload, 1500);
+}
+async function cloudUpload() {
+  if (!cloudUser || !cloudReady) return;
+  const stare = cloudPayload();
+  if (stare.length > 950000) { cloudState = 'error'; toast(t('cloudTooBig')); return; }
+  const at = Date.now();
+  try {
+    await fb.F.setDoc(cloudDoc(cloudUser.uid), { stare, actualizat: at, dispozitiv: DEV_ID });
+    syncMeta.at = at; saveSyncMeta(); cloudState = 'ok';
+  } catch (e) { cloudState = 'error'; }
+  rerenderAccount();
+}
+function applyRemote(d) {
+  let R; try { R = JSON.parse(d.stare); } catch (e) { return; }
+  cloudApplying = true;
+  S = Object.assign(blank(), R); S.settings = Object.assign(blank().settings, R.settings || {}); S.profile = Object.assign(blank().profile, R.profile || {}); S.social = Object.assign(blank().social, R.social || {});
+  migrateReads();
+  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {}
+  cloudApplying = false;
+  syncMeta.at = d.actualizat || Date.now(); saveSyncMeta(); cloudState = 'ok';
+  if (!$('#sheets').innerHTML) render();
+}
+function mergeById(a, b, newer) {
+  const m = new Map();
+  (a || []).forEach(x => m.set(x.id ?? JSON.stringify(x), x));
+  (b || []).forEach(x => { const k = x.id ?? JSON.stringify(x); const o = m.get(k); m.set(k, o && newer && newer(o) > newer(x) ? o : x); });
+  return [...m.values()];
+}
+function mergeWith(R) {
+  const lt = x => x.lastTouch || x.added || 0;
+  S.books = mergeById(R.books, S.books, lt);
+  S.lists = mergeById(R.lists, S.lists);
+  S.sessions = mergeById(R.sessions, S.sessions);
+  S.events = mergeById(R.events, S.events);
+  migrateReads();
+}
+async function cloudStart(u) {
+  cloudReady = false; cloudState = 'working';
+  if (cloudUnsub) cloudUnsub();
+  const first = syncMeta.uid !== u.uid;
+  syncMeta.uid = u.uid; syncMeta.email = u.email; saveSyncMeta();
+  let handledFirst = false;
+  cloudUnsub = fb.F.onSnapshot(cloudDoc(u.uid), snap => {
+    if (!handledFirst) {
+      handledFirst = true;
+      if (!snap.exists()) { cloudReady = true; cloudUpload(); return; }
+      const d = snap.data(); let R = null; try { R = JSON.parse(d.stare); } catch (e) {}
+      const remoteBooks = R ? (R.books || []).length : 0, localBooks = S.books.length;
+      if (!first) {   // dispozitivul a mai fost legat de cont: câștigă varianta cea mai nouă
+        cloudReady = true;
+        if ((d.actualizat || 0) > (syncMeta.at || 0) && d.dispozitiv !== DEV_ID) applyRemote(d); else if ((syncMeta.dirty || 0) > (d.actualizat || 0)) cloudUpload(); else cloudState = 'ok';
+        return;
+      }
+      if (!localBooks) { applyRemote(d); cloudReady = true; toast(t('cloudLoaded', { n: remoteBooks })); return; }
+      if (!remoteBooks) { cloudReady = true; cloudUpload(); toast(t('cloudUploaded', { n: localBooks })); return; }
+      cloudPendingRemote = d;
+      openSheet(firstSyncSheet(localBooks, remoteBooks), t('cloudChooseTitle'));
+      return;
+    }
+    if (!cloudReady) return;
+    const d = snap.data(); if (!d) return;
+    if (d.dispozitiv === DEV_ID && (d.actualizat || 0) <= (syncMeta.at || 0)) return;
+    if ((d.actualizat || 0) > (syncMeta.at || 0)) applyRemote(d);
+  }, () => { cloudState = 'error'; rerenderAccount(); });
+}
+function cloudStop() { if (cloudUnsub) cloudUnsub(); cloudUnsub = null; cloudReady = false; cloudState = 'off'; }
+function firstSyncSheet(nl, nr) {
+  return `${sheetHead(t('cloudChooseTitle'))}<p class="foot">${esc(t('cloudChooseText', { nl, nr }))}</p>
+  <div class="btns"><button class="btn primary" data-firstsync="merge">${esc(t('cloudMerge'))}</button>
+  <button class="btn plain" data-firstsync="cloud">${esc(t('cloudUseCloud', { n: nr }))}</button>
+  <button class="btn plain" data-firstsync="device">${esc(t('cloudUseDevice', { n: nl }))}</button></div>`;
+}
+function firstSyncChoice(kind) {
+  const d = cloudPendingRemote; cloudPendingRemote = null; closeSheet(true);
+  if (!d) return;
+  if (kind === 'cloud') { applyRemote(d); cloudReady = true; toast(t('cloudDoneCloud')); return; }
+  if (kind === 'merge') { try { mergeWith(JSON.parse(d.stare)); } catch (e) {} try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} render(); }
+  cloudReady = true; cloudUpload(); toast(t(kind === 'merge' ? 'cloudDoneMerge' : 'cloudDoneDevice'));
+}
+const AUTH_ERR = { 'auth/invalid-email': 'errEmail', 'auth/missing-email': 'errEmail', 'auth/email-already-in-use': 'errEmailUsed', 'auth/weak-password': 'errWeak', 'auth/missing-password': 'errWeak', 'auth/invalid-credential': 'errWrong', 'auth/wrong-password': 'errWrong', 'auth/user-not-found': 'errWrong', 'auth/invalid-login-credentials': 'errWrong', 'auth/too-many-requests': 'errMany', 'auth/network-request-failed': 'errNet' };
+function authErr(e) { return t(AUTH_ERR[e && e.code] || 'errOther'); }
+function showAuthErr(msg) { const b = $('#authErr'); if (b) { b.textContent = msg; } else toast(msg); }
+async function doLogin(mode, email, pass) {
+  showAuthErr('');
+  if (!email) { showAuthErr(t('errEmail')); $('#l-mail')?.focus(); return; }
+  if (mode !== 'reset' && !pass) { showAuthErr(t('errWeak')); $('#l-pass')?.focus(); return; }
+  say(t('cloudWorking'));
+  try {
+    await fbLoad();
+    if (mode === 'signup') await fb.A.createUserWithEmailAndPassword(fb.auth, email, pass);
+    else if (mode === 'reset') { await fb.A.sendPasswordResetEmail(fb.auth, email); toast(t('resetSent', { x: email })); return; }
+    else await fb.A.signInWithEmailAndPassword(fb.auth, email, pass);
+    toast(t(mode === 'signup' ? 'signedUp' : 'signedIn'));
+  } catch (e) { showAuthErr(authErr(e)); $('#l-mail')?.focus(); }
+}
+async function doLogout() {
+  try { await fbLoad(); clearTimeout(cloudTimer); if (cloudReady) await cloudUpload(); await fb.A.signOut(fb.auth); } catch (e) {}
+  syncMeta = {}; saveSyncMeta(); toast(t('signedOut'));
+}
+function syncStatusText() {
+  if (cloudState === 'working') return t('cloudStWorking');
+  if (cloudState === 'error') return t('cloudStError');
+  if (syncMeta.at) return t('cloudStOk', { x: new Date(syncMeta.at).toLocaleString(L() === 'ro' ? 'ro-RO' : undefined, { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) });
+  return t('cloudStWorking');
+}
+// la pornire: dacă dispozitivul e legat de un cont, pornește sincronizarea
+if (syncMeta.uid) setTimeout(() => fbLoad().catch(() => { cloudState = 'error'; }), 800);
+// ce s-a schimbat fără internet se trimite când revine conexiunea
+window.addEventListener('online', () => { if (cloudUser && cloudReady) cloudUpload(); });
 
 /* ================= navigation ================= */
 function current() { const st = stack[tab]; return st[st.length - 1]; }
@@ -927,6 +1077,9 @@ document.addEventListener('click', e => {
   const d = el.dataset;
   if ('close' in d) { closeSheet(); if (formatAfter) { const f = formatAfter; formatAfter = null; f(); } return; }
   if (d.tab) { goTab(d.tab); return; }
+  if (d.firstsync) { firstSyncChoice(d.firstsync); return; }
+  if ('syncnow' in d) { cloudState = 'working'; rerenderAccount(); (async () => { try { await fbLoad(); if (cloudUser) { cloudReady = true; await cloudUpload(); toast(t(cloudState === 'ok' ? 'synced' : 'cloudStError')); } } catch (e) { toast(t('cloudStError')); } })(); return; }
+  if ('logout' in d) { doLogout(); return; }
   if ('back' in d) { pop(); return; }
   if (d.go) { goTab(d.go); return; }
   if (d.push) { const titles = { profile: t('editProfile'), account: t('account'), settings: t('settings'), import: t('import'), backup: t('backup'), history: t('historyTitle'), install: t('install'), about: t('about'), stats: t('stats'), language: t('language') }; push(d.push, null, titles[d.push]); return; }
@@ -1044,7 +1197,8 @@ document.addEventListener('submit', e => {
   if (f.id === 'sessionForm') { const b = byId(f.dataset.id); if (!b) return; const p = +fd.get('pages') || 0, m = +fd.get('minutes') || 0; if (!p && !m) { toast(t('writePagesOrMinutes')); return; } logSession(b, p, m, String(fd.get('date') || today())); b.lastTouch = Date.now(); persist(); closeSheet(true); openSheet(bookSheet(b), b.title); toast(t('sessionSaved')); render(); return; }
   if (f.id === 'listForm') { const name = String(fd.get('name') || '').trim(); if (!name) { $('#listErr').textContent = t('writeListName'); return; } const id = f.dataset.id; if (id) { listById(id).name = name; const top = current(); if (top && top.name === 'list') top.title = name; } else S.lists.push({ id: uid(), name }); persist(); closeSheet(true); render(); toast(id ? t('listRenamed') : t('listCreated', { x: name })); if (sheetBook && !id) { const b = byId(sheetBook); if (b) openSheet(pickListsSheet(b), t('lists')); } return; }
   if (f.id === 'profileForm') { S.profile.name = String(fd.get('name') || '').trim(); S.profile.bio = String(fd.get('bio') || '').trim(); persist(); toast(t('profileSaved')); return; }
-  if (f.id === 'accountForm') { S.account = { username: String(fd.get('username') || '').trim(), email: String(fd.get('email') || '').trim() }; persist(); toast(t('accountSaved')); return; }
+  if (f.id === 'accountForm') { S.account.username = String(fd.get('username') || '').trim(); persist(); toast(t('accountSaved')); return; }
+  if (f.id === 'loginForm') { const mode = (e.submitter && e.submitter.value) || 'login'; doLogin(mode, String(fd.get('email') || '').trim(), String(fd.get('pass') || '')); return; }
 });
 function exportBackup() {
   const blob = new Blob([JSON.stringify(S, null, 1)], { type: 'application/json' });

@@ -649,3 +649,35 @@ window.GENRE_GROUPS = [
   ["gg_young", ["youngAdult", "newAdult", "middleGrade", "children", "graphicNovels", "manga"]],
   ["gg_nonfiction", ["biography", "memoir", "history", "trueCrime", "selfHelp", "psychology", "philosophy", "religion", "spirituality", "science", "popularScience", "technology", "business", "economics", "politics", "essays", "travel", "cooking", "health", "parenting", "art", "music", "sports", "nature", "education", "languages"]]
 ];
+
+/* cont și sincronizare (21 nov. 2026) */
+Object.assign(I18N.en, {
+  password: "Password", passwordNote: "At least 6 characters. Use the same email and password on your phone, computer or any other device.",
+  signIn: "Sign in", signUp: "Create a new account", forgotPass: "I forgot my password", signOut: "Sign out", syncNow: "Sync now",
+  cloudIntro: "With an account, your library is the same on your phone, your computer and any other device. Every change is saved by itself.",
+  cloudNote: "Every change is saved by itself and appears on your other devices.",
+  signedInAs: "Signed in as {x}", signedIn: "You are signed in. Your library is syncing.", signedUp: "Your account was created. Your library is syncing.", signedOut: "You signed out. The library stays on this device.",
+  resetSent: "I sent an email to {x} with a link to set a new password.",
+  cloudWorking: "Please wait…", cloudStWorking: "Syncing…", cloudStOk: "Synced, last time on {x}", cloudStError: "Syncing does not work right now. Check the internet connection.", synced: "Synced.",
+  cloudLoaded: "I brought your library from the account: {n} books.", cloudUploaded: "I saved your library in the account: {n} books.",
+  cloudChooseTitle: "Which library do I keep?", cloudChooseText: "On this device you have {nl} books, and in the account there are {nr} books.",
+  cloudMerge: "Put them together", cloudUseCloud: "Keep the one in the account ({n} books)", cloudUseDevice: "Keep the one on this device ({n} books)",
+  cloudDoneCloud: "Done. You now have the library from the account.", cloudDoneDevice: "Done. The account now has the library from this device.", cloudDoneMerge: "Done. I put the two libraries together.",
+  cloudTooBig: "The library is too big to sync.",
+  errEmail: "Write a valid email address.", errEmailUsed: "There is already an account with this email. Press Sign in.", errWeak: "The password needs at least 6 characters.", errWrong: "The email or the password is wrong.", errMany: "Too many tries. Wait a few minutes.", errNet: "No internet connection.", errOther: "It did not work. Try again."
+});
+Object.assign(I18N.ro, {
+  password: "Parolă", passwordNote: "Cel puțin 6 caractere. Folosești același e-mail și aceeași parolă pe telefon, pe calculator sau pe orice alt dispozitiv.",
+  signIn: "Intră în cont", signUp: "Creează un cont nou", forgotPass: "Am uitat parola", signOut: "Ieși din cont", syncNow: "Sincronizează acum",
+  cloudIntro: "Cu un cont, biblioteca ta e aceeași pe telefon, pe calculator și pe orice alt dispozitiv. Orice schimbare se salvează singură.",
+  cloudNote: "Orice schimbare se salvează singură și apare pe celelalte dispozitive.",
+  signedInAs: "Ești conectat cu {x}", signedIn: "Ai intrat în cont. Biblioteca se sincronizează.", signedUp: "Contul a fost creat. Biblioteca se sincronizează.", signedOut: "Ai ieșit din cont. Biblioteca rămâne pe acest dispozitiv.",
+  resetSent: "Am trimis un e-mail la {x} cu un link pentru o parolă nouă.",
+  cloudWorking: "Așteaptă puțin…", cloudStWorking: "Se sincronizează…", cloudStOk: "Sincronizat, ultima dată pe {x}", cloudStError: "Sincronizarea nu merge acum. Verifică internetul.", synced: "Sincronizat.",
+  cloudLoaded: "Am adus biblioteca din cont: {n} cărți.", cloudUploaded: "Am salvat biblioteca în cont: {n} cărți.",
+  cloudChooseTitle: "Ce bibliotecă păstrez?", cloudChooseText: "Pe acest dispozitiv ai {nl} cărți, iar în cont sunt {nr} cărți.",
+  cloudMerge: "Le pun împreună", cloudUseCloud: "Păstrez ce e în cont ({n} cărți)", cloudUseDevice: "Păstrez ce e pe acest dispozitiv ({n} cărți)",
+  cloudDoneCloud: "Gata. Acum ai biblioteca din cont.", cloudDoneDevice: "Gata. În cont e acum biblioteca de pe acest dispozitiv.", cloudDoneMerge: "Gata. Am pus cele două biblioteci împreună.",
+  cloudTooBig: "Biblioteca e prea mare pentru sincronizare.",
+  errEmail: "Scrie o adresă de e-mail corectă.", errEmailUsed: "Există deja un cont cu acest e-mail. Apasă Intră în cont.", errWeak: "Parola trebuie să aibă cel puțin 6 caractere.", errWrong: "E-mailul sau parola nu sunt corecte.", errMany: "Prea multe încercări. Așteaptă câteva minute.", errNet: "Nu ai internet.", errOther: "Nu a mers. Încearcă din nou."
+});
