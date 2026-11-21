@@ -722,6 +722,7 @@ function mergeWith(R) {
   S.lists = mergeById(R.lists, S.lists);
   S.sessions = mergeById(R.sessions, S.sessions);
   S.events = mergeById(R.events, S.events);
+  ['profile', 'account', 'settings'].forEach(k => { const r = R[k] || {}; Object.keys(r).forEach(f => { const v = S[k][f]; if (v === '' || v == null || (Array.isArray(v) && !v.length)) S[k][f] = r[f]; }); });
   migrateReads();
 }
 async function cloudStart(u) {
@@ -743,8 +744,11 @@ async function cloudStart(u) {
       }
       if (!localBooks) { applyRemote(d); cloudReady = true; toast(t('cloudLoaded', { n: remoteBooks })); return; }
       if (!remoteBooks) { cloudReady = true; cloudUpload(); toast(t('cloudUploaded', { n: localBooks })); return; }
-      cloudPendingRemote = d;
-      openSheet(firstSyncSheet(localBooks, remoteBooks), t('cloudChooseTitle'));
+      // tot ce era pe dispozitiv înainte de cont se adaugă în cont, fără să se piardă nimic
+      try { mergeWith(R); } catch (e) {}
+      try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {}
+      cloudReady = true; cloudUpload(); render();
+      toast(t('cloudMerged', { n: S.books.length }));
       return;
     }
     if (!cloudReady) return;

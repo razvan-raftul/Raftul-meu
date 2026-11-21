@@ -652,6 +652,7 @@ window.GENRE_GROUPS = [
 
 /* cont și sincronizare (21 nov. 2026) */
 Object.assign(I18N.en, {
+  cloudMerged: "Done. Everything from this device was added to your account: {n} books in total.",
   welcomeTitle: "Create your account", haveAccount: "I already have an account, sign in", later: "Later",
   password: "Password", passwordNote: "At least 6 characters. Use the same email and password on your phone, computer or any other device.",
   signIn: "Sign in", signUp: "Create a new account", forgotPass: "I forgot my password", signOut: "Sign out", syncNow: "Sync now",
@@ -660,7 +661,7 @@ Object.assign(I18N.en, {
   signedInAs: "Signed in as {x}", signedIn: "You are signed in. Your library is syncing.", signedUp: "Your account was created. Your library is syncing.", signedOut: "You signed out. The library stays on this device.",
   resetSent: "I sent an email to {x} with a link to set a new password.",
   cloudWorking: "Please wait…", cloudStWorking: "Syncing…", cloudStOk: "Synced, last time on {x}", cloudStError: "Syncing does not work right now. Check the internet connection.", synced: "Synced.",
-  cloudLoaded: "I brought your library from the account: {n} books.", cloudUploaded: "I saved your library in the account: {n} books.",
+  cloudLoaded: "I brought your library from the account: {n} books.", cloudUploaded: "Everything you had so far is saved in your account: {n} books, with progress, lists and statistics.",
   cloudChooseTitle: "Which library do I keep?", cloudChooseText: "On this device you have {nl} books, and in the account there are {nr} books.",
   cloudMerge: "Put them together", cloudUseCloud: "Keep the one in the account ({n} books)", cloudUseDevice: "Keep the one on this device ({n} books)",
   cloudDoneCloud: "Done. You now have the library from the account.", cloudDoneDevice: "Done. The account now has the library from this device.", cloudDoneMerge: "Done. I put the two libraries together.",
@@ -668,6 +669,7 @@ Object.assign(I18N.en, {
   errEmail: "Write a valid email address.", errEmailUsed: "There is already an account with this email. Press Sign in.", errWeak: "The password needs at least 6 characters.", errWrong: "The email or the password is wrong.", errMany: "Too many tries. Wait a few minutes.", errNet: "No internet connection.", errOther: "It did not work. Try again."
 });
 Object.assign(I18N.ro, {
+  cloudMerged: "Gata. Tot ce aveai pe acest dispozitiv s-a adăugat în cont: {n} cărți în total.",
   welcomeTitle: "Fă-ți un cont", haveAccount: "Am deja cont, intră în cont", later: "Mai târziu",
   password: "Parolă", passwordNote: "Cel puțin 6 caractere. Folosești același e-mail și aceeași parolă pe telefon, pe calculator sau pe orice alt dispozitiv.",
   signIn: "Intră în cont", signUp: "Creează un cont nou", forgotPass: "Am uitat parola", signOut: "Ieși din cont", syncNow: "Sincronizează acum",
@@ -676,7 +678,7 @@ Object.assign(I18N.ro, {
   signedInAs: "Ești conectat cu {x}", signedIn: "Ai intrat în cont. Biblioteca se sincronizează.", signedUp: "Contul a fost creat. Biblioteca se sincronizează.", signedOut: "Ai ieșit din cont. Biblioteca rămâne pe acest dispozitiv.",
   resetSent: "Am trimis un e-mail la {x} cu un link pentru o parolă nouă.",
   cloudWorking: "Așteaptă puțin…", cloudStWorking: "Se sincronizează…", cloudStOk: "Sincronizat, ultima dată pe {x}", cloudStError: "Sincronizarea nu merge acum. Verifică internetul.", synced: "Sincronizat.",
-  cloudLoaded: "Am adus biblioteca din cont: {n} cărți.", cloudUploaded: "Am salvat biblioteca în cont: {n} cărți.",
+  cloudLoaded: "Am adus biblioteca din cont: {n} cărți.", cloudUploaded: "Tot ce aveai până acum s-a salvat în cont: {n} cărți, cu progresul, listele și statisticile.",
   cloudChooseTitle: "Ce bibliotecă păstrez?", cloudChooseText: "Pe acest dispozitiv ai {nl} cărți, iar în cont sunt {nr} cărți.",
   cloudMerge: "Le pun împreună", cloudUseCloud: "Păstrez ce e în cont ({n} cărți)", cloudUseDevice: "Păstrez ce e pe acest dispozitiv ({n} cărți)",
   cloudDoneCloud: "Gata. Acum ai biblioteca din cont.", cloudDoneDevice: "Gata. În cont e acum biblioteca de pe acest dispozitiv.", cloudDoneMerge: "Gata. Am pus cele două biblioteci împreună.",
