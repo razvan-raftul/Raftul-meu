@@ -1054,7 +1054,18 @@ function exportBackup() {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   toast(t('backupSaved'));
 }
+/* pe calculator: Control 1-6 deschide filele, Control Tab / Control Shift Tab trece la urmatoarea / anterioara */
+function tabOrder() { return [...document.querySelectorAll('.tab')].map(x => x.dataset.tab); }
+document.querySelectorAll('.tab').forEach((el, i) => el.setAttribute('aria-keyshortcuts', 'Control+' + (i + 1)));
 document.addEventListener('keydown', e => {
+  if (e.ctrlKey && !e.altKey && !e.metaKey) {
+    const order = tabOrder();
+    const n = /^Digit([1-9])$/.exec(e.code);
+    let target = null;
+    if (n && +n[1] <= order.length) target = order[+n[1] - 1];
+    else if (e.key === 'Tab') target = order[(order.indexOf(tab) + (e.shiftKey ? order.length - 1 : 1)) % order.length];
+    if (target) { e.preventDefault(); if ($('#sheets').innerHTML) closeSheet(true); goTab(target); return; }
+  }
   if (e.key === 'Escape' && $('#sheets').innerHTML) { closeSheet(); return; }
   if (e.key === 'Tab' && $('#sheets').innerHTML) {   // keyboard focus stays inside the open sheet
     const f = [...$('#sheets').querySelectorAll('button,input,select,textarea,a[href],[tabindex]:not([tabindex="-1"])')].filter(x => !x.disabled && x.offsetParent !== null);
